@@ -1,4 +1,3 @@
-# --- MISSION 1: 기지 건설 (가짜 DB) ---
 # DE가 ClickHouse로 구축할 DB를 Python dict로 모방(Mocking)합니다.
 
 MOCK_DB = {
@@ -38,3 +37,43 @@ MOCK_DB = {
         'full_text': '[대한경제=임성엽 기자]서울시가 쪽방촌 화재를 예방하기 전기상태감지기를 올해 1월 도입한 이래 3000건이 넘는 자칫 화재로 번질 위험 징후를 조기에 포착해 조치한 것으로 나타났다. 전기 이상징후를 감지해 즉각 조치함으로써 화재예방에 실질적인 성과를 거뒀다는 설명이다. 1일 에프에스는 올해 1월부터 9월까지 지난 9개월 동안, 쪽방촌에서 총 3224건의 전기화재 위험을 조기에 발견해 신속히 조치했다고 이날 밝혔다. 에프에스는 스마트 전기화재 예방시스템을 개발해 서울시 쪽방촌에 설치한 기업이다. 쪽방촌은 건물 밀집도가 높고 시설이 낙후돼 화재가 한번 일어나면 대규모 피해로 번질 개연성이 크다. 실제 서울시에 따르면 쪽방촌 화재의 37.5%는 전기적 원인으로 일어나고 있다. 하지만 쪽방촌 특성상 별도 전기공사나 스프링클러 설치가 어렵다. 이에 서울시는 쪽방촌에 스마트 전기화재 예방시스템을 도입했다. 이 시스템은 쪽방별로 분전반에 사물인터넷(IOT)센터를 설치하고, 실시간으로 전기 관련 데이터를 수집한다. 센서 데이터는 과전류나 저항성 누설전류와 같은 이상징후를 실시간으로 파악한다. 이렇게 집적된 데이터들은 관제시스템에 누적돼 실시간 감독된다. 관제 모니터링결과 전기적 이상징후가 발생하면 앱과 문자로 쪽방주민과 쪽방상감소에 경고 메시지가 전송된다. 관제 담당자가 직접 방문해 상태를 점검하는 방식이다. 서울시는 돈의동 쪽방촌을 소방차 진입이 용이하도록 4개 권역(빨간구역, 노란구역, 파란구역, 초록구역)으로 구분하여 전기화재 예방 활동을 하고 있다. 쪽방촌 중에서도 특정 지역의 전기 화재 위험도가 높다는 결과도 나왔다. 이 회사가 3224건의 전기화재 위험도를 분석한 결과, 파란 구역에서 전체 화재 경고의 34.3%가 발생했다. 이에 회사는 파란구역을 중심으로 전체 쪽방촌에 대한 전기화재 예방 모니터링을 강화하고 있다. 서울시도 쪽방촌은 물론 전체 서울시민의 안전과 재산보호를 위해 적극 노력할 것이며, 전기화재 취약 지역에 대한 안전 조치를 한층 더 강화할 계획이다. 김영진 에프에스 대표는 “앞으로도 스마트 안전도시 구현을 위한 핵심 플랫폼 기업으로 성장해 나가겠다”며 “시민 생명과 재산보호를 위해 최선을 다하겠다”고 말했다. 임성엽 기자 starleaf@ 〈ⓒ 대한경제신문(www.dnews.co.kr), 무단전재 및 수집, 재배포금지〉'
     }
 }
+
+# data.py 맨 아래에 추가
+
+from datetime import datetime, timedelta
+
+def normalize_mock_db(mock_db: dict) -> dict:
+    """
+    기존 MOCK_DB 포맷(id 중심)을 앱에서 쓰기 쉬운 포맷(article_id, published_at 포함)으로 정규화합니다.
+    - summary/trust/embedding 등은 관리자 파이프라인이 채우는 것이 원칙이므로 기본값만 넣습니다.
+    """
+    base_time = datetime(2026, 1, 3, 9, 0, 0)  # 임의 기준(한국시간 느낌만)
+    normalized = {}
+
+    for i, (k, a) in enumerate(mock_db.items()):
+        aid = a.get("article_id") or a.get("id") or k
+
+        normalized[aid] = {
+            "article_id": str(aid),
+            "title": a.get("title", ""),
+            "source": a.get("source", ""),
+            "url": a.get("url", ""),
+            "published_at": a.get("published_at") or (base_time - timedelta(hours=i)).isoformat(),
+            "full_text": a.get("full_text", ""),
+
+            # 아래는 '사전 계산' 결과 컬럼(더미/초기값)
+            "summary_text": a.get("summary_text", ""),  # 없으면 빈 값(상세에서 경고 표시)
+            "keywords": a.get("keywords", []),
+            "embed_full": a.get("embed_full", []),
+            "embed_summary": a.get("embed_summary", []),
+
+            "trust_score": a.get("trust_score", 50),
+            "trust_verdict": a.get("trust_verdict", "uncertain"),
+            "trust_reason": a.get("trust_reason", "MOCK 데이터(초기값)"),
+            "trust_per_criteria": a.get("trust_per_criteria", {}),
+            "status": a.get("status", "ready"),
+        }
+
+    return normalized
+
+MOCK_DB_NORMALIZED = normalize_mock_db(MOCK_DB)
