@@ -56,4 +56,7 @@ watchdog==6.0.0
 websockets==15.0.1
 yt-dlp==2025.9.26
 duckdb
+requests
+beautifulsoup4
+lxml
 
