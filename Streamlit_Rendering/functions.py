@@ -1,7 +1,7 @@
 # Streamlit_Rendering/function.py
 import json
 from datetime import datetime, timezone
-from turtle import left
+# from turtle import left
 
 import numpy as np
 import pandas as pd
@@ -144,7 +144,7 @@ def go_to_admin():
 
 def render_admin_page():
     st.title("관리자 페이지")
-    st.button("사용자 모드로 돌아가기", on_click=show_main_page, use_container_width=True)
+    st.button("⬅️사용자 모드로 돌아가기", on_click=show_main_page, use_container_width=True)
 
     st.divider()
 
@@ -362,3 +362,4 @@ def render_detail_page(article_id: str):
     # ✅ 메인에는 팝업 여는 버튼만
     if st.button("요약/신뢰도/피드백 보기", use_container_width=True):
         open_insight_dialog()
+
