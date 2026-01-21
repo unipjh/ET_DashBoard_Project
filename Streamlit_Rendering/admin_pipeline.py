@@ -7,7 +7,8 @@ from Streamlit_Rendering import repo
 from Streamlit_Rendering.summary import summarize_text_dummy
 from Streamlit_Rendering.trust import score_trust_dummy
 ARTICLE_COLUMNS = [
-    "article_id", "title", "source", "url", "published_at", "full_text",
+    "reporter", "title", "category", "link", "date", "content", 
+    "comment_cnt", "like_cnt",
     "summary_text", "keywords", "embed_full", "embed_summary",
     "trust_score", "trust_verdict", "trust_reason", "trust_per_criteria",
     "status",
@@ -99,4 +100,3 @@ def build_ready_rows(df_raw: pd.DataFrame) -> pd.DataFrame:
         })
 
     return pd.DataFrame(rows)
-
