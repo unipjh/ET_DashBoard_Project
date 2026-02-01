@@ -153,7 +153,7 @@ def render_admin_page():
     with left:
         st.subheader("URL 1개 크롤링 → DB 적재")
 
-        url = st.text_input("최신 뉴스 URL(더미)", value="https://www.hani.co.kr/arti/area/yeongnam/1238999")
+        url = st.text_input("최신 뉴스 URL(더미)", value="https://n.news.naver.com/article/421/0008746573?cds=news_media_pc&type=editn")
         dedup = st.checkbox("중복 URL 스킵", value=True)
 
         if st.button("크롤링 실행", use_container_width=True):
