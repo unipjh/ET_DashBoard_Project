@@ -61,3 +61,11 @@ beautifulsoup4
 lxml
 torch
 
+
+## 0201 추가
+torch
+scikit-learn
+kobert-transformers
+keybert
+sentence-transformers
+tqdm
