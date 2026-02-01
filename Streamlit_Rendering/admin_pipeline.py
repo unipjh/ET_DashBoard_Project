@@ -7,9 +7,9 @@ import pandas as pd
 
 from Streamlit_Rendering.crawl import fetch_article_from_url
 from Streamlit_Rendering import repo
-from Streamlit_Rendering.trust import score_trust_dummy
 from Streamlit_Rendering.summary import get_summarizer
 from sklearn.metrics.pairwise import cosine_similarity
+from Streamlit_Rendering.trust import score_trust_dummy
 
 ARTICLE_COLUMNS = [
     "article_id", "title", "source", "url", "published_at", "full_text",
@@ -20,9 +20,7 @@ ARTICLE_COLUMNS = [
 
 def ingest_one_url(url: str, source: str = "manual", dedup_by_url: bool = True) -> dict:
     """
-    더미 크롤링 함수
     URL 1개 → 크롤링 → (중복 필터링) → DB 적재
-    반환: {"status": "inserted"/"skipped"/"error", "message": "...", "url": "..."}
     """
     try:
         if dedup_by_url and repo.exists_article_url(url):
@@ -36,10 +34,9 @@ def ingest_one_url(url: str, source: str = "manual", dedup_by_url: bool = True) 
 
     except Exception as e:
         return {"status": "error", "message": f"크롤링/적재 실패: {e}", "url": url}
-    
+
 def run_trust(full_text: str, source: str) -> dict:
     return score_trust_dummy(full_text, source=source, low=30, high=100)
-
 
 
 ## 0201 가현 수정 사항
