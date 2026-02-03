@@ -4,6 +4,7 @@ import json
 import torch
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 from Streamlit_Rendering.crawl import fetch_article_from_url
 from Streamlit_Rendering import repo
@@ -17,6 +18,28 @@ ARTICLE_COLUMNS = [
     "trust_score", "trust_verdict", "trust_reason", "trust_per_criteria",
     "status",
 ]
+
+def run_crawling_pipeline(max_articles_per_category: int = 30) -> tuple:
+    """
+    네이버 실시간 크롤링 후 DB 적재 (crawl.py 포맷 대응)
+    """
+    from Streamlit_Rendering.crawl import fetch_articles_from_naver
+    try:
+        # 1. crawl.py의 새로운 포맷으로 데이터 수집
+        df_raw = fetch_articles_from_naver(max_articles_per_category=max_articles_per_category)
+        if df_raw.empty: 
+            return 0, ["크롤링 결과가 비어있습니다."]
+        
+        # 2. 새로운 포맷 데이터를 DB용 포맷으로 변환 및 AI 처리
+        df_ready = build_ready_rows_from_naver(df_raw)
+        
+        # 3. DB 적재
+        repo.upsert_articles(df_ready)
+        return len(df_ready), []
+    except Exception as e:
+        return 0, [str(e)]
+
+
 
 def ingest_one_url(url: str, source: str = "manual", dedup_by_url: bool = True) -> dict:
     """
@@ -96,27 +119,35 @@ def run_embedding(text: str) -> list[float]:
     embedding = outputs.last_hidden_state[:, 0, :].cpu().numpy()[0]
     return embedding.tolist()
 
-def build_ready_rows(df_raw: pd.DataFrame) -> pd.DataFrame:
-    """데이터 가공 및 적재 준비"""
+def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    crawl.py의 반환값(date, link, content 등)을 DB 컬럼명에 맞게 변환
+    """
     rows = []
-    for _, r in df_raw.iterrows():
-        full_text = str(r["full_text"])
+    for idx, r in df_raw.iterrows():
+        # crawl.py 포맷 -> DB 스키마 포맷 매핑
+        full_text = str(r.get("content", ""))
+        source = str(r.get("source", "Naver News"))
+        url = str(r.get("link", ""))
+        published_at = str(r.get("date", ""))
+        title = str(r.get("title", ""))
         
-        # 모델 엔진 호출
+        # 고유 ID 생성
+        article_id = f"naver_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}"
+        
+        # AI 분석 엔진 호출
         summary_text = run_summary(full_text)
         keywords = run_keywords(full_text)
         embed_full = run_embedding(full_text)
         embed_summary = run_embedding(summary_text)
-
-        # 신뢰도 점수 (기본값 처리 강화)
-        trust = score_trust_dummy(full_text, source=str(r.get("source", "manual")))
+        trust = score_trust_dummy(full_text, source=source)
 
         rows.append({
-            "article_id": str(r["article_id"]),
-            "title": str(r["title"]),
-            "source": str(r.get("source", "manual")),
-            "url": str(r["url"]),
-            "published_at": str(r["published_at"]),
+            "article_id": article_id,
+            "title": title,
+            "source": source,
+            "url": url,
+            "published_at": published_at,
             "full_text": full_text,
             "summary_text": summary_text,
             "keywords": json.dumps(keywords, ensure_ascii=False),
