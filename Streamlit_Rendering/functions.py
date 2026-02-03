@@ -1,7 +1,5 @@
-# Streamlit_Rendering/function.py
 import json
 from datetime import datetime, timezone
-# from turtle import left
 
 import numpy as np
 import pandas as pd
@@ -48,16 +46,9 @@ def _append_event(event: str, article_id: str):
 
 # =========================
 # DB seed (데모용)
-# - 실제 운영에서는 관리자 파이프라인으로만 데이터가 들어와야 하지만,
-#   초기 UI 검증을 위해 DB가 비어 있으면 MOCK를 넣는 버튼/헬퍼를 둡니다.
 # =========================
 
 def _seed_db_from_mock(force: bool = False) -> int:
-    """
-    DB가 비어 있으면 MOCK_DB를 articles 테이블에 적재합니다.
-    force=True면 기존 데이터가 있어도 upsert로 덮어씁니다(주의).
-    반환: 적재된 row 수(추정)
-    """
     df_exist = repo.load_articles()
     if (not force) and (len(df_exist) > 0):
         return 0
@@ -72,9 +63,6 @@ def _seed_db_from_mock(force: bool = False) -> int:
             "url": a.get("url", ""),
             "published_at": a.get("published_at", ""),
             "full_text": a.get("full_text", ""),
-
-            # 아래는 '사전 계산 결과' 컬럼.
-            # MOCK에서는 비어있어도 되며, 사용자 화면은 "없음"을 표시합니다.
             "summary_text": a.get("summary_text", ""),
             "keywords": json.dumps(a.get("keywords", []), ensure_ascii=False),
             "embed_full": json.dumps(a.get("embed_full", [])),
@@ -93,11 +81,9 @@ def _seed_db_from_mock(force: bool = False) -> int:
 def _load_articles_df() -> pd.DataFrame:
     df = repo.load_articles()
     if len(df) == 0:
-        # 자동 seed는 MVP 편의용. 원치 않으면 주석 처리하십시오.
         _seed_db_from_mock(force=False)
         df = repo.load_articles()
 
-    # 정렬 안정화(문자열 기준)
     if "published_at" in df.columns:
         df = df.sort_values(by="published_at", ascending=False, na_position="last")
 
@@ -138,8 +124,6 @@ def go_to_admin():
 
 # =========================
 # 관리자 페이지
-# - 여기서만 admin_pipeline을 호출하여 DB에 적재
-# - function.py는 summary.py/trust.py를 직접 import하지 않음
 # =========================
 
 def render_admin_page():
@@ -151,6 +135,33 @@ def render_admin_page():
     left, right = st.columns([0.6, 0.4])
 
     with left:
+        # ===== 섹션 1: 배치 크롤링 (새로 추가) =====
+        st.subheader("🔄 배치 크롤링 (네이버 뉴스)")
+        st.caption("모든 카테고리에서 최신 뉴스를 자동으로 수집합니다.")
+        
+        max_articles = st.slider(
+            "카테고리당 최대 기사 수",
+            min_value=5,
+            max_value=100,
+            value=30,
+            step=5
+        )
+        
+        if st.button("🚀 배치 크롤링 실행", use_container_width=True, type="primary"):
+            with st.spinner(f"크롤링 중... (최대 {max_articles}건/카테고리, 2-5분 소요)"):
+                # admin_pipeline의 run_crawling_pipeline() 호출
+                ingest_count, errors = ap.run_crawling_pipeline(
+                    max_articles_per_category=max_articles
+                )
+            
+            if errors:
+                st.error(f"❌ 크롤링 중 에러 발생:\n" + "\n".join(errors))
+            else:
+                st.success(f"✅ 배치 크롤링 완료: {ingest_count}건 적재")
+                st.rerun()
+
+        st.divider()
+
         st.subheader("URL 1개 크롤링 → DB 적재")
 
         url = st.text_input("최신 뉴스 URL(더미)", value="https://n.news.naver.com/article/421/0008746573?cds=news_media_pc&type=editn")
@@ -167,19 +178,16 @@ def render_admin_page():
             else:
                 st.error(result["message"])
 
-        st.caption("주의: 사용자 페이지에서는 요약/신뢰도 계산을 절대 수행하지 않습니다. 계산은 관리자 파이프라인에서만 하십시오.")
+        st.caption("주의: 사용자 페이지에서는 요약/신뢰도 계산을 절대 수행하지 않습니다.")
 
         st.divider()
         st.subheader("데모용 데이터")
         if st.button("MOCK_DB → DB 적재(초기 UI 확인용)", use_container_width=True):
             n = _seed_db_from_mock(force=False)
             if n == 0:
-                st.info("이미 DB에 데이터가 존재합니다(추가 적재 없음).")
+                st.info("이미 DB에 데이터가 존재합니다.")
             else:
                 st.success(f"MOCK_DB 적재 완료: {n}건")
-
-        
-        st.caption("주의: 사용자 페이지에서는 요약/신뢰도 계산을 절대 수행하지 않습니다. 계산은 관리자 파이프라인에서만 하십시오.")
 
     with right:
         st.subheader("대시보드(더미)")
@@ -213,7 +221,7 @@ def render_main_page():
         st.session_state["search_query"] = st.text_input(
             "검색어를 입력하세요",
             value=st.session_state["search_query"],
-            placeholder="MVP: 제목/본문/키워드 문자열 검색(조회만 수행)"
+            placeholder="MVP: 제목/본문/키워드 문자열 검색"
         )
         st.form_submit_button("검색", on_click=execute_search, use_container_width=True)
 
@@ -241,8 +249,6 @@ def render_main_page():
 
 def render_search_results_page(query: str):
     st.subheader(f"검색 결과: '{query}'")
-    st.caption("MVP: 제목/본문/키워드 문자열 검색 + 최신순 정렬 (모델 호출 없음)")
-
     df = _load_articles_df()
 
     q = (query or "").strip()
@@ -278,8 +284,9 @@ def render_search_results_page(query: str):
 
 
 # =========================
-# 사용자 페이지 - 상세 (DB 조회만)
+# 사용자 페이지 - 상세
 # =========================
+
 def render_detail_page(article_id: str):
     row = _get_article_row(article_id)
     if row is None:
@@ -287,7 +294,6 @@ def render_detail_page(article_id: str):
         st.button("메인으로 돌아가기", on_click=show_main_page, use_container_width=True)
         return
 
-    # 조회 이벤트(중복 방지는 추후)
     _append_event("view", article_id)
 
     st.button("메인으로 돌아가기", on_click=show_main_page, use_container_width=True)
@@ -299,14 +305,12 @@ def render_detail_page(article_id: str):
 
     st.divider()
 
-    # ✅ 본문만 메인에 표시
     st.subheader("기사 본문")
     full_text = row.get("full_text", "")
     st.markdown(full_text.replace("\n", "  \n\n"))
 
     st.divider()
 
-    # ✅ 팝업에서 사용할 데이터(사전 계산값)
     score = _safe_int(row.get("trust_score", 0), 0)
     verdict = row.get("trust_verdict", "uncertain")
     reason = row.get("trust_reason", "")
@@ -314,24 +318,21 @@ def render_detail_page(article_id: str):
 
     @st.dialog("요약 / 신뢰도 / 기준별 평가 / 피드백")
     def open_insight_dialog():
-        # ---- 신뢰도 ----
         st.subheader("신뢰도")
-        st.markdown(f"**{_traffic_light(score)} {score}점**  (verdict: `{verdict}`)")
+        st.markdown(f"**{_traffic_light(score)} {score}점** (verdict: `{verdict}`)")
         st.progress(min(max(score, 0), 100) / 100)
         st.write(reason if reason else "-")
 
         st.divider()
 
-        # ---- 요약 ----
         st.subheader("요약")
         if summary_text:
             st.info(summary_text)
         else:
-            st.warning("요약문이 없습니다. (관리자 파이프라인에서 생성 후 적재해야 합니다.)")
+            st.warning("요약문이 없습니다.")
 
         st.divider()
 
-        # ---- 기준별 평가 ----
         st.subheader("기준별 평가")
         per = _safe_json_loads(row.get("trust_per_criteria", ""), default={})
         if not per:
@@ -346,7 +347,6 @@ def render_detail_page(article_id: str):
 
         st.divider()
 
-        # ---- 피드백 ----
         st.subheader("피드백")
         c1, c2, c3 = st.columns(3)
         if c1.button("도움이 됐어요", key=f"like_{article_id}"):
@@ -359,7 +359,5 @@ def render_detail_page(article_id: str):
             _append_event("hide", article_id)
             st.success("저장되었습니다.")
 
-    # ✅ 메인에는 팝업 여는 버튼만
     if st.button("요약/신뢰도/피드백 보기", use_container_width=True):
-        open_insight_dialog()
-
+        open_insight_dialog()               
