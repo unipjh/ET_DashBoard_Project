@@ -4,6 +4,7 @@
 본 프로젝트는 **Streamlit + DuckDB 기반의 설명 가능한 뉴스 추천·신뢰도 분석 플랫폼**입니다.
 현재 단계에서는 **크롤링 → DB 적재 → UI 조회 흐름을 안정적으로 구축하는 것**을 진행 중 입니다.
 
+> URL: https://etdashboardproject-jw2fgmdmtj2baplvqpswex.streamlit.app/
 ---
 
 ## 1. 프로젝트 개요
