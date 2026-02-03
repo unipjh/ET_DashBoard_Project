@@ -1,6 +1,7 @@
 # --- Core Framework & Utils ---
+# Python 3.13 환경을 위해 Pandas 버전을 최신으로 조정합니다.
 streamlit==1.49.1
-pandas<2.2.0
+pandas>=2.2.2
 numpy<2.0.0
 requests
 tqdm
@@ -12,8 +13,9 @@ watchdog
 toml
 
 # --- AI & NLP (Memory Optimized) ---
-# CPU 전용 버전을 설치하여 배포 성공률을 높입니다.
-torch --index-url https://download.pytorch.org/whl/cpu
+# uv 엔진 에러 방지를 위해 --index-url 옵션을 제거합니다.
+# Streamlit Cloud는 기본적으로 CPU 환경에 맞는 최적의 torch를 설치합니다.
+torch
 scikit-learn
 kobert-transformers
 keybert
