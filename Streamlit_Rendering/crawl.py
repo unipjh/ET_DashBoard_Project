@@ -66,6 +66,17 @@ def clean_news_content(text):
     text = re.sub(r'[가-힣]{2,4}\s*기자\s*[=|-]\s*', '', text)
     text = re.sub(r'[●▲▶ⓒⒸ■➔◆▶◀▨▣◈*·]', '', text)
     text = re.sub(r'(?:\s*#[^\s#]+)+$', '', text)
+
+    # 추가된 코드: 문장이 "다." 또는 "."으로 끝나지 않으면 완성된 마지막 문장까지만 추출
+    text = text.strip()
+    if text and not (text.endswith("다.") or text.endswith(".")):
+        # 가장 마지막에 등장하는 "다." 또는 "."의 위치를 찾음
+        last_dot = max(text.rfind("다."), text.rfind("."))
+        if last_dot != -1:
+            # "다."인 경우 2글자, "."인 경우 1글자를 포함하여 자름
+            end_idx = last_dot + 2 if text[last_dot:last_dot+2] == "다." else last_dot + 1
+            text = text[:end_idx]
+
     return _clean_text(text)  # 최종 공백 정제
 
 
@@ -376,4 +387,5 @@ def fetch_article_from_url(url: str, source: str = "manual", timeout_sec: int = 
     except Exception as e:
         print(f"❌ URL 크롤링 실패 ({url}): {e}")
         return pd.DataFrame()
+
 
