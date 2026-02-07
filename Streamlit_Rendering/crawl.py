@@ -65,6 +65,7 @@ def clean_news_content(text):
     text = re.sub(r'[●|]\s*[가-힣]{2,4}\s*기자', '', text)
     text = re.sub(r'[가-힣]{2,4}\s*기자\s*[=|-]\s*', '', text)
     text = re.sub(r'[●▲▶ⓒⒸ■➔◆▶◀▨▣◈*·]', '', text)
+    text = re.sub(r'(?:\s*#[^\s#]+)+$', '', text)
     return _clean_text(text)  # 최종 공백 정제
 
 
@@ -375,3 +376,4 @@ def fetch_article_from_url(url: str, source: str = "manual", timeout_sec: int = 
     except Exception as e:
         print(f"❌ URL 크롤링 실패 ({url}): {e}")
         return pd.DataFrame()
+
