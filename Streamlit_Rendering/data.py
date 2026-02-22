@@ -1,5 +1,3 @@
-# DE가 ClickHouse로 구축할 DB를 Python dict로 모방(Mocking)합니다.
-
 MOCK_DB = {
     'news_001': {
         'id': 'news_001',
