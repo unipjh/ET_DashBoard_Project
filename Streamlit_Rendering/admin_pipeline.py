@@ -8,7 +8,7 @@ import random
 import time
 
 # API 키 설정
-genai.configure(api_key="") # 본인 api 키
+genai.configure(api_key="AIzaSyBpKoUelqCXM9q9HjEP3z3W7E20uvAyFT4") # 본인 api 키
 
 def run_gemini_summary(text: str) -> str:
     """Gemini로 요약"""
@@ -132,3 +132,4 @@ def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
     
     print(f"✅ 작업 완료! {len(rows)}개 기사 적재됨")
     return len(rows)
+
