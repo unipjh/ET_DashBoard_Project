@@ -6,7 +6,7 @@ import google.generativeai as genai
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 1. 초기 설정 (API 키를 입력하세요)
-GEMINI_API_KEY = "AIzaSyBpKoUelqCXM9q9HjEP3z3W7E20uvAyFT4" # 본인 api 키
+GEMINI_API_KEY = "" # 본인 api 키
 genai.configure(api_key=GEMINI_API_KEY)
 DB_PATH = "app_db.duckdb"
 
