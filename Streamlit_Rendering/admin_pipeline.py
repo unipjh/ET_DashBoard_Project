@@ -1,162 +1,134 @@
-# Streamlit_Rendering/admin_pipeline.py
-import re
-import json
-import torch
-import numpy as np
-import pandas as pd
+import google.generativeai as genai
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
-
-from Streamlit_Rendering.crawl import fetch_article_from_url
+import pandas as pd
 from Streamlit_Rendering import repo
-from Streamlit_Rendering.summary import get_summarizer
-from sklearn.metrics.pairwise import cosine_similarity
-from Streamlit_Rendering.trust import score_trust_dummy
+from Streamlit_Rendering.crawl import fetch_articles_from_naver
+import random
+import time
 
-ARTICLE_COLUMNS = [
-    "article_id", "title", "source", "url", "published_at", "full_text",
-    "summary_text", "keywords", "embed_full", "embed_summary",
-    "trust_score", "trust_verdict", "trust_reason", "trust_per_criteria",
-    "status",
-]
+# API 키 설정
+genai.configure(api_key="") # 본인 api 키
 
-def run_crawling_pipeline(max_articles_per_category: int = 30) -> tuple:
-    """
-    네이버 실시간 크롤링 후 DB 적재 (crawl.py 포맷 대응)
-    """
-    from Streamlit_Rendering.crawl import fetch_articles_from_naver
-    try:
-        # 1. crawl.py의 새로운 포맷으로 데이터 수집
-        df_raw = fetch_articles_from_naver(max_articles_per_category=max_articles_per_category)
-        if df_raw.empty: 
-            return 0, ["크롤링 결과가 비어있습니다."]
-        
-        # 2. 새로운 포맷 데이터를 DB용 포맷으로 변환 및 AI 처리
-        df_ready = build_ready_rows_from_naver(df_raw)
-        
-        # 3. DB 적재
-        repo.upsert_articles(df_ready)
-        return len(df_ready), []
-    except Exception as e:
-        return 0, [str(e)]
+def run_gemini_summary(text: str) -> str:
+    """Gemini로 요약"""
+    model = genai.GenerativeModel('gemini-2.5-flash-lite')
+    attempt = 1
 
+    while True:
+        try:
+            response = model.generate_content(f"다음 뉴스를 3문장 내외로 요약해줘:\n\n{text}")
+            return response.text
+        except Exception as e:
+            if "429" in str(e) or "Quota exceeded" in str(e):
+                wait_time = random.randint(30, 60) 
+                print(f"⚠️ 할당량 초과! {wait_time}초 후 다시 도전합니다...")
+                time.sleep(wait_time)
+                attempt += 1
+                continue
+            else:
+                return f"요약 중 에러: {e}"
 
-
-def ingest_one_url(url: str, source: str = "manual", dedup_by_url: bool = True) -> dict:
-    """
-    URL 1개 → 크롤링 → (중복 필터링) → DB 적재
-    """
-    try:
-        if dedup_by_url and repo.exists_article_url(url):
-            return {"status": "skipped", "message": "이미 DB에 존재하는 URL입니다. (중복 스킵)", "url": url}
-
-        df_raw = fetch_article_from_url(url=url, source=source)
-        df_ready = build_ready_rows(df_raw)
-
-        repo.upsert_articles(df_ready)
-        return {"status": "inserted", "message": "DB에 1건 적재되었습니다.", "url": url}
-
-    except Exception as e:
-        return {"status": "error", "message": f"크롤링/적재 실패: {e}", "url": url}
-
-def run_trust(full_text: str, source: str) -> dict:
-    return score_trust_dummy(full_text, source=source, low=30, high=100)
-
-
-## 0201 가현 수정 사항
-def run_summary(full_text: str) -> str:
-    """KoBERT 기반 문장 추출 요약 (상위 3개 문장)"""
-    if not full_text: return ""
-    model_obj = get_summarizer()
-    clean_text = model_obj._preprocess_text(full_text)
-    
-    # 문장 분리
-    sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 20]
-    if len(sents) <= 3:
-        return clean_text
-
-    # 문장 임베딩 생성
-    inputs = model_obj.tokenizer(sents, return_tensors="pt", padding=True, truncation=True, max_length=128).to(model_obj.device)
-    with torch.no_grad():
-        outputs = model_obj.model(**inputs)
-    
-    sent_embs = outputs.last_hidden_state[:, 0, :].cpu().numpy()
-    
-    # 유사도 기반 중요 문장 추출
-    sim_matrix = cosine_similarity(sent_embs, sent_embs)
-    scores = sim_matrix.sum(axis=1)
-    top_indices = sorted(np.argsort(scores)[::-1][:3])
-    
-    return ' '.join([sents[i] for i in top_indices])
-
-def run_keywords(full_text: str) -> list[str]:
-    """KeyBERT 기반 키워드 추출 (MMR 적용)"""
-    if not full_text: return []
-    model_obj = get_summarizer()
-    clean_text = model_obj._preprocess_text(full_text)
+def run_gemini_embedding(text: str) -> list:
+    """Gemini 임베딩"""
+    if not text or str(text).strip() == "":
+        return [0.0] * 768
     
     try:
-        keywords_tuples = model_obj.kw_model.extract_keywords(
-            clean_text, 
-            keyphrase_ngram_range=(1, 1), 
-            stop_words=model_obj.stopwords_list, 
-            top_n=5,
-            use_mmr=True,
-            diversity=0.3
+        result = genai.embed_content(
+            model="models/gemini-embedding-001",
+            content=text,
+            task_type="retrieval_document"
         )
-        return [k[0] for k in keywords_tuples]
-    except Exception:
-        return []
+        embedding = result['embedding']
+        
+        if len(embedding) > 768:
+            embedding = embedding[:768]
+        
+        return embedding
+    except Exception as e:
+        print(f"❌ 임베딩 실패: {e}")
+        return [0.0] * 768
 
-def run_embedding(text: str) -> list[float]:
-    """KoBERT 임베딩 생성"""
-    if not text: return [0.0] * 768
-    model_obj = get_summarizer()
+def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
+    """
+    크롤링된 기사를 처리하여 DB에 적재
     
-    inputs = model_obj.tokenizer([text], return_tensors="pt", padding=True, truncation=True, max_length=512).to(model_obj.device)
-    with torch.no_grad():
-        outputs = model_obj.model(**inputs)
+    Args:
+        df_raw: 크롤링된 기사 DataFrame
     
-    embedding = outputs.last_hidden_state[:, 0, :].cpu().numpy()[0]
-    return embedding.tolist()
+    Returns:
+        적재된 기사 수
+    """
+    rows, chunk_rows = [], []
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
 
-def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> pd.DataFrame:
-    """
-    crawl.py의 반환값(date, link, content 등)을 DB 컬럼명에 맞게 변환
-    """
-    rows = []
+    total = len(df_raw)
     for idx, r in df_raw.iterrows():
-        # crawl.py 포맷 -> DB 스키마 포맷 매핑
-        full_text = str(r.get("content", ""))
-        source = str(r.get("source", "Naver News"))
-        url = str(r.get("link", ""))
-        published_at = str(r.get("date", ""))
+        progress = int((idx + 1) / total * 100)
+        print(f"📦 [{progress}%] {idx+1}/{total} 번째 기사 처리 중... - {r.get('title', '')[:40]}")
+        
+        # crawl.py의 반환 포맷 대응
+        full_text = str(r.get("content", ""))  # crawl.py에서는 'content' 사용
         title = str(r.get("title", ""))
+        source = str(r.get("source", "미상"))
+        url = str(r.get("link", ""))  # crawl.py에서는 'link' 사용
+        published_at = str(r.get("date", "날짜미상"))
+        reporter = str(r.get("reporter", "미상"))
         
-        # 고유 ID 생성
-        article_id = f"naver_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}"
-        
-        # AI 분석 엔진 호출
-        summary_text = run_summary(full_text)
-        keywords = run_keywords(full_text)
-        embed_full = run_embedding(full_text)
-        embed_summary = run_embedding(summary_text)
-        trust = score_trust_dummy(full_text, source=source)
+        if len(full_text.strip()) < 10:
+            print(f"⚠️ {idx+1}번 기사 본문이 비어있어 건너뜁니다.")
+            continue
 
+        aid = f"naver_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}"
+        
+        # 1. Gemini로 요약
+        print(f"  📝 요약 생성 중...")
+        summary = run_gemini_summary(full_text)
+        time.sleep(2)
+
+        # 2. 기사 데이터 구성
         rows.append({
-            "article_id": article_id,
+            "article_id": aid,
             "title": title,
             "source": source,
             "url": url,
             "published_at": published_at,
             "full_text": full_text,
-            "summary_text": summary_text,
-            "keywords": json.dumps(keywords, ensure_ascii=False),
-            "embed_full": json.dumps(embed_full),
-            "embed_summary": json.dumps(embed_summary),
-            "trust_score": int(trust.get("score", 50)),
-            "trust_verdict": str(trust.get("verdict", "uncertain")),
-            "trust_reason": str(trust.get("reason", "")),
-            "trust_per_criteria": json.dumps(trust.get("per_criteria", {}), ensure_ascii=False),
-            "status": "ready",
+            "summary_text": summary,
+            "keywords": "[]",
+            "embed_full": "[]",
+            "embed_summary": "[]",
+            "trust_score": 0,
+            "trust_verdict": "None",
+            "trust_reason": "",
+            "trust_per_criteria": "{}",
+            "status": "ready"
         })
-    return pd.DataFrame(rows).reindex(columns=ARTICLE_COLUMNS)
+
+        # 3. 청크 임베딩
+        print(f"  🔢 임베딩 생성 중...")
+        chunks = splitter.split_text(full_text)
+        for i, txt in enumerate(chunks):
+            time.sleep(0.5)
+            v = run_gemini_embedding(txt)
+            chunk_rows.append({
+                "chunk_id": f"{aid}_{i}", 
+                "article_id": aid,
+                "chunk_text": txt, 
+                "embedding": v
+            })
+
+        time.sleep(3)  # API 속도 제한 회피
+
+    # DB 저장
+    if rows: 
+        print(f"\n💾 {len(rows)}개 기사를 DB에 저장 중...")
+        repo.upsert_articles(pd.DataFrame(rows))
+    
+    if chunk_rows: 
+        print(f"💾 {len(chunk_rows)}개 청크를 DB에 저장 중...")
+        repo.upsert_chunks(pd.DataFrame(chunk_rows))
+    
+    print(f"✅ 작업 완료! {len(rows)}개 기사 적재됨")
+    return len(rows)
