@@ -1,119 +1,18 @@
-import json
-from datetime import datetime, timezone
-
-import numpy as np
-import pandas as pd
 import streamlit as st
-
+import pandas as pd
 from Streamlit_Rendering import repo
 from Streamlit_Rendering import admin_pipeline as ap
-# 변경
-from Streamlit_Rendering.data import MOCK_DB_NORMALIZED as MOCK_DB
+from Streamlit_Rendering.crawl import fetch_articles_from_naver
+import re
 
-
-# =========================
-# 공통 유틸 (LLM/API 호출 없음)
-# =========================
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-def _traffic_light(score: int) -> str:
-    if score >= 70:
-        return "🟢"
-    if score >= 40:
-        return "🟡"
-    return "🔴"
-
-def _safe_int(x, default=0) -> int:
-    try:
-        return int(x)
-    except Exception:
-        return default
-
-def _safe_json_loads(s: str, default):
-    try:
-        if not s:
-            return default
-        return json.loads(s)
-    except Exception:
-        return default
-
-def _append_event(event: str, article_id: str):
-    user_id = st.session_state.get("user_id", "default_user")
-    repo.append_event(user_id=user_id, ts=_now_iso(), event=event, article_id=article_id)
-
-
-# =========================
-# DB seed (데모용)
-# =========================
-
-def _seed_db_from_mock(force: bool = False) -> int:
-    df_exist = repo.load_articles()
-    if (not force) and (len(df_exist) > 0):
-        return 0
-
-    rows = []
-    for a in MOCK_DB.values():
-        article_id = a.get("article_id") or a.get("id")
-        rows.append({
-            "article_id": str(article_id),
-            "title": a.get("title", ""),
-            "source": a.get("source", ""),
-            "url": a.get("url", ""),
-            "published_at": a.get("published_at", ""),
-            "full_text": a.get("full_text", ""),
-            "summary_text": a.get("summary_text", ""),
-            "keywords": json.dumps(a.get("keywords", []), ensure_ascii=False),
-            "embed_full": json.dumps(a.get("embed_full", [])),
-            "embed_summary": json.dumps(a.get("embed_summary", [])),
-            "trust_score": _safe_int(a.get("trust_score", 50), 50),
-            "trust_verdict": a.get("trust_verdict", "uncertain"),
-            "trust_reason": a.get("trust_reason", "MOCK 데이터입니다."),
-            "trust_per_criteria": json.dumps(a.get("trust_per_criteria", {}), ensure_ascii=False),
-            "status": a.get("status", "ready"),
-        })
-
-    df_seed = pd.DataFrame(rows)
-    repo.upsert_articles(df_seed)
-    return len(df_seed)
-
-def _load_articles_df() -> pd.DataFrame:
-    df = repo.load_articles()
-    if len(df) == 0:
-        _seed_db_from_mock(force=False)
-        df = repo.load_articles()
-
-    if "published_at" in df.columns:
-        df = df.sort_values(by="published_at", ascending=False, na_position="last")
-
-    return df
-
-def _get_article_row(article_id: str) -> dict | None:
-    df = _load_articles_df()
-    sub = df[df["article_id"] == article_id]
-    if len(sub) == 0:
-        return None
-    return sub.iloc[0].to_dict()
-
-
-# =========================
-# 상태 변경 콜백
-# =========================
-
-def select_article(article_id: str):
-    st.session_state["selected_article_id"] = article_id
+def select_article(aid):
+    st.session_state["selected_article_id"] = aid
+    st.session_state["search_executed"] = False
     st.session_state["admin_mode"] = False
 
 def show_main_page():
     st.session_state["selected_article_id"] = None
     st.session_state["search_executed"] = False
-    st.session_state["search_query"] = ""
-    st.session_state["admin_mode"] = False
-
-def execute_search():
-    st.session_state["search_executed"] = True
-    st.session_state["selected_article_id"] = None
     st.session_state["admin_mode"] = False
 
 def go_to_admin():
@@ -121,243 +20,212 @@ def go_to_admin():
     st.session_state["selected_article_id"] = None
     st.session_state["search_executed"] = False
 
-
-# =========================
-# 관리자 페이지
-# =========================
-
-def render_admin_page():
-    st.title("관리자 페이지")
-    st.button("⬅️사용자 모드로 돌아가기", on_click=show_main_page, use_container_width=True)
-
-    st.divider()
-
-    left, right = st.columns([0.6, 0.4])
-
-    with left:
-        # ===== 섹션 1: 배치 크롤링 (새로 추가) =====
-        st.subheader("🔄 배치 크롤링 (네이버 뉴스)")
-        st.caption("모든 카테고리에서 최신 뉴스를 자동으로 수집합니다.")
-        
-        max_articles = st.slider(
-            "카테고리당 최대 기사 수",
-            min_value=5,
-            max_value=100,
-            value=30,
-            step=5
-        )
-        
-        if st.button("🚀 배치 크롤링 실행", use_container_width=True, type="primary"):
-            with st.spinner(f"크롤링 중... (최대 {max_articles}건/카테고리, 2-5분 소요)"):
-                # admin_pipeline의 run_crawling_pipeline() 호출
-                ingest_count, errors = ap.run_crawling_pipeline(
-                    max_articles_per_category=max_articles
-                )
-            
-            if errors:
-                st.error(f"❌ 크롤링 중 에러 발생:\n" + "\n".join(errors))
-            else:
-                st.success(f"✅ 배치 크롤링 완료: {ingest_count}건 적재")
-                st.rerun()
-
-        st.divider()
-
-        st.subheader("URL 1개 크롤링 → DB 적재")
-
-        url = st.text_input("최신 뉴스 URL(더미)", value="https://n.news.naver.com/article/421/0008746573?cds=news_media_pc&type=editn")
-        dedup = st.checkbox("중복 URL 스킵", value=True)
-
-        if st.button("크롤링 실행", use_container_width=True):
-            with st.spinner("URL 크롤링 및 DB 적재 중..."):
-                result = ap.ingest_one_url(url=url, source="manual", dedup_by_url=dedup)
-
-            if result["status"] == "inserted":
-                st.success(result["message"])
-            elif result["status"] == "skipped":
-                st.info(result["message"])
-            else:
-                st.error(result["message"])
-
-        st.caption("주의: 사용자 페이지에서는 요약/신뢰도 계산을 절대 수행하지 않습니다.")
-
-        st.divider()
-        st.subheader("데모용 데이터")
-        if st.button("MOCK_DB → DB 적재(초기 UI 확인용)", use_container_width=True):
-            n = _seed_db_from_mock(force=False)
-            if n == 0:
-                st.info("이미 DB에 데이터가 존재합니다.")
-            else:
-                st.success(f"MOCK_DB 적재 완료: {n}건")
-
-    with right:
-        st.subheader("대시보드(더미)")
-        chart_data = np.random.randn(30, 2)
-        st.line_chart(chart_data)
-        st.info("이 영역은 user_events를 집계한 실데이터 지표로 교체하십시오.")
-
-    st.divider()
-
-    df = _load_articles_df()
-    st.subheader("articles 테이블 현황")
-    st.caption(f"총 {len(df)}건")
-    cols = [c for c in ["article_id", "title", "source", "published_at", "status", "trust_score"] if c in df.columns]
-    st.dataframe(df[cols], use_container_width=True)
-
-
-# =========================
-# 사용자 페이지 - 메인
-# =========================
+def highlight_important_sentences(text: str, summary: str) -> str:
+    """요약에 포함된 문장들을 본문에서 형광펜으로 하이라이트"""
+    highlighted_text = text
+    
+    summary_sentences = [s.strip() for s in summary.split('.') if len(s.strip()) > 10]
+    
+    for sent in summary_sentences:
+        key_phrase = sent[:min(20, len(sent))]
+        pattern = re.compile(re.escape(key_phrase), re.IGNORECASE)
+        highlighted_text = pattern.sub(f"🔍 **{key_phrase}**", highlighted_text)
+    
+    return highlighted_text
 
 def render_main_page():
     title_col, button_col = st.columns([0.8, 0.2])
     with title_col:
-        st.title("AI 기반 뉴스 검색 플랫폼")
+        st.title("🚀 AI 기반 뉴스 검색 엔진")
     with button_col:
-        st.button("Manage Mode", on_click=go_to_admin, use_container_width=True)
+        st.button("⚙️ Admin", on_click=go_to_admin, use_container_width=True)
 
     st.markdown("---")
+    query = st.text_input("궁금한 키워드를 입력하세요", placeholder="예: 날씨, 삼성 반도체, AI")
+    if st.button("🔍 AI 분석 검색", use_container_width=True, type="primary"):
+        if query.strip():
+            st.session_state["search_query"] = query
+            st.session_state["search_executed"] = True
+    
+    st.subheader("📬 최신 뉴스 리스트")
+    df = repo.load_articles()
+    if df.empty:
+        st.info("DB가 비어있습니다. Admin에서 데이터를 적재하세요.")
+    else:
+        st.caption(f"총 {len(df)}개의 기사")
+        
+        # 페이지네이션 설정
+        articles_per_page = 10
+        total_pages = (len(df) + articles_per_page - 1) // articles_per_page
+        
+        if "current_page" not in st.session_state:
+            st.session_state.current_page = 1
+        
+        # 현재 페이지 기사 표시
+        start_idx = (st.session_state.current_page - 1) * articles_per_page
+        end_idx = start_idx + articles_per_page
+        page_articles = df.iloc[start_idx:end_idx]
+        
+        for _, r in page_articles.iterrows():
+            st.button(f"[{r['source']}] {r['title']}", on_click=select_article, 
+                      args=(r['article_id'],), key=f"m_{r['article_id']}", use_container_width=True)
+        
+        st.divider()
+        
+        # 페이지 네비게이션 (하단)
+        col1, col2, col3 = st.columns([0.3, 0.4, 0.3])
+        with col1:
+            if st.button("⬅️ 이전", use_container_width=True):
+                if st.session_state.current_page > 1:
+                    st.session_state.current_page -= 1
+                    st.rerun()
+        with col2:
+            st.markdown(f"<div style='text-align: center; font-weight: bold; padding: 10px;'>{st.session_state.current_page} / {total_pages}</div>", unsafe_allow_html=True)
+        with col3:
+            if st.button("다음 ➡️", use_container_width=True):
+                if st.session_state.current_page < total_pages:
+                    st.session_state.current_page += 1
+                    st.rerun()
 
-    with st.form(key="search_form"):
-        st.session_state["search_query"] = st.text_input(
-            "검색어를 입력하세요",
-            value=st.session_state["search_query"],
-            placeholder="MVP: 제목/본문/키워드 문자열 검색"
-        )
-        st.form_submit_button("검색", on_click=execute_search, use_container_width=True)
+def render_search_results_page(query):
+    st.button("⬅️ 메인으로", on_click=show_main_page, use_container_width=True)
+    st.title(f"🔍 '{query}' 검색 결과")
 
-    st.markdown("---")
+    with st.spinner("관련 뉴스를 찾는 중..."):
+        q_vec = ap.run_gemini_embedding(query)
+        df_hits = repo.search_similar_chunks(q_vec, limit=10, min_score=0.55)
 
-    st.subheader("추천 뉴스 (MVP: 최신 순)")
-    df = _load_articles_df()
-    top = df.head(8)
-
-    for _, r in top.iterrows():
-        aid = r["article_id"]
-        label = f"[{r.get('source','')}] {r.get('title','')}"
-        st.button(
-            label,
-            on_click=select_article,
-            args=(aid,),
-            key=f"main_rec_{aid}",
-            use_container_width=True
-        )
-
-
-# =========================
-# 사용자 페이지 - 검색 결과
-# =========================
-
-def render_search_results_page(query: str):
-    st.subheader(f"검색 결과: '{query}'")
-    df = _load_articles_df()
-
-    q = (query or "").strip()
-    if q:
-        mask = (
-            df["title"].fillna("").str.contains(q, case=False) |
-            df["full_text"].fillna("").str.contains(q, case=False) |
-            df["keywords"].fillna("").str.contains(q, case=False)
-        )
-        df = df[mask]
-
-    st.write(f"총 {len(df)}건")
-
-    for _, r in df.iterrows():
-        aid = r["article_id"]
-        source = r.get("source", "")
-        title = r.get("title", "")
-        status = r.get("status", "ready")
-        trust_score = _safe_int(r.get("trust_score", 0), 0)
-
-        badge = "✅" if status == "ready" else "⏳"
-
-        st.button(
-            f"{badge} [{source}] {title}  ({_traffic_light(trust_score)} {trust_score})",
-            on_click=select_article,
-            args=(aid,),
-            key=f"sr_{aid}",
-            use_container_width=True
-        )
-
-    st.divider()
-    st.button("메인으로 돌아가기", on_click=show_main_page, use_container_width=True)
-
-
-# =========================
-# 사용자 페이지 - 상세
-# =========================
-
-def render_detail_page(article_id: str):
-    row = _get_article_row(article_id)
-    if row is None:
-        st.error("오류: 기사를 찾을 수 없습니다.")
-        st.button("메인으로 돌아가기", on_click=show_main_page, use_container_width=True)
+    if df_hits.empty:
+        st.warning("❌ 관련 뉴스를 찾지 못했습니다.")
         return
 
-    _append_event("view", article_id)
+    st.success(f"✅ 관련 뉴스를 찾았습니다!")
 
-    st.button("메인으로 돌아가기", on_click=show_main_page, use_container_width=True)
+    df_articles = df_hits.drop_duplicates("article_id")
+    for idx, (_, r) in enumerate(df_articles.iterrows(), 1):
+        similarity_percent = int(r['score'] * 100)
+        
+        with st.container(border=True):
+            col_t, col_s, col_b = st.columns([0.65, 0.15, 0.2])
+            with col_t:
+                st.markdown(f"**{idx}. {r['title']}**")
+                st.caption(f"📰 출처: {r['source']}")
+            with col_s:
+                if similarity_percent >= 70:
+                    st.markdown(f"🟢 **{similarity_percent}%**")
+                elif similarity_percent >= 55:
+                    st.markdown(f"🟡 **{similarity_percent}%**")
+                else:
+                    st.markdown(f"🔴 **{similarity_percent}%**")
+            with col_b:
+                st.button("보기", key=f"s_{r['article_id']}", 
+                          on_click=select_article, args=(r['article_id'],), use_container_width=True)
 
-    st.header(row.get("title", ""))
-    st.caption(
-        f"출처: {row.get('source','')} | 발행: {row.get('published_at','')} | 원문: {row.get('url','')}"
-    )
-
-    st.divider()
-
-    st.subheader("기사 본문")
-    full_text = row.get("full_text", "")
-    st.markdown(full_text.replace("\n", "  \n\n"))
-
-    st.divider()
-
-    score = _safe_int(row.get("trust_score", 0), 0)
-    verdict = row.get("trust_verdict", "uncertain")
-    reason = row.get("trust_reason", "")
-    summary_text = row.get("summary_text", "")
-
-    @st.dialog("요약 / 신뢰도 / 기준별 평가 / 피드백")
-    def open_insight_dialog():
-        st.subheader("신뢰도")
-        st.markdown(f"**{_traffic_light(score)} {score}점** (verdict: `{verdict}`)")
-        st.progress(min(max(score, 0), 100) / 100)
-        st.write(reason if reason else "-")
-
+def render_detail_page(aid):
+    st.button("⬅️ 메인으로", on_click=show_main_page, use_container_width=True)
+    df = repo.load_articles()
+    row = df[df["article_id"] == aid].iloc[0]
+    
+    # 레이아웃: 왼쪽(요약 + 관련 기사), 오른쪽(본문)
+    left_col, right_col = st.columns([0.35, 0.65])
+    
+    # ===== 왼쪽 컬럼: 요약 및 관련 기사 =====
+    with left_col:
+        st.subheader("📋 AI 요약")
+        with st.container(border=True):
+            st.markdown(row['summary_text'])
+        
         st.divider()
-
-        st.subheader("요약")
-        if summary_text:
-            st.info(summary_text)
+        
+        # 관련 기사
+        st.subheader("🔗 관련 기사")
+        article_vec = ap.run_gemini_embedding(row['full_text'])
+        related_df = repo.search_similar_chunks(article_vec, limit=100, min_score=0.65)
+        
+        if not related_df.empty:
+            related_articles = related_df[related_df['article_id'] != aid].drop_duplicates('article_id')
+            for _, rel in related_articles.head(3).iterrows():
+                score_pct = int(rel['score'] * 100)
+                st.markdown(f"""
+                <div style="padding: 8px; border-left: 3px solid #FF6B35; background-color: #f9f9f9; margin-bottom: 8px;">
+                    <small><b>{rel['title'][:50]}...</b></small><br>
+                    <small>유사도: {score_pct}%</small>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("확인", key=f"rel_{rel['article_id']}", use_container_width=True):
+                    select_article(rel['article_id'])
         else:
-            st.warning("요약문이 없습니다.")
-
+            st.info("관련 기사가 없습니다.")
+    
+    # ===== 오른쪽 컬럼: 기사 본문 =====
+    with right_col:
+        # 메타정보
+        st.markdown(f"**📰 {row['source']}** | 📅 {row.get('published_at', '날짜미상')}")
+        st.markdown(f"✍️ {row.get('title', '')}")
+        
+        # 원본 링크
+        if row.get('url'):
+            st.markdown(f"[🔗 원문 보기]({row['url']})")
+        
         st.divider()
+        
+        st.markdown(row['full_text'])
 
-        st.subheader("기준별 평가")
-        per = _safe_json_loads(row.get("trust_per_criteria", ""), default={})
-        if not per:
-            st.warning("기준별 평가 데이터가 없습니다.")
-        else:
-            for k, v in per.items():
-                s = v.get("score", None)
-                r = v.get("reason", "")
-                st.markdown(f"- **{k}**: `{s}`")
-                if r:
-                    st.write(r)
-
-        st.divider()
-
-        st.subheader("피드백")
-        c1, c2, c3 = st.columns(3)
-        if c1.button("도움이 됐어요", key=f"like_{article_id}"):
-            _append_event("like", article_id)
-            st.success("저장되었습니다.")
-        if c2.button("별로였어요", key=f"dislike_{article_id}"):
-            _append_event("dislike", article_id)
-            st.success("저장되었습니다.")
-        if c3.button("이 기사 숨기기", key=f"hide_{article_id}"):
-            _append_event("hide", article_id)
-            st.success("저장되었습니다.")
-
-    if st.button("요약/신뢰도/피드백 보기", use_container_width=True):
-        open_insight_dialog()               
+def render_admin_page():
+    st.title("⚙️ 관리자 설정")
+    st.button("⬅️ 돌아가기", on_click=show_main_page, use_container_width=True)
+    
+    st.divider()
+    st.subheader("🔄 네이버 뉴스 크롤링")
+    
+    col1, col2 = st.columns([0.7, 0.3])
+    with col1:
+        st.caption("카테고리당 기사 수를 지정할 수 있습니다")
+    with col2:
+        articles_per_cat = st.number_input("카테고리당 기사 수", min_value=5, max_value=50, value=10)
+    
+    if st.button("🚀 크롤링 시작", type="primary", use_container_width=True):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # 크롤링
+            status_text.info("📰 네이버 뉴스 크롤링 중...")
+            df_raw = fetch_articles_from_naver(max_articles_per_category=articles_per_cat)
+            
+            if df_raw.empty:
+                st.error("❌ 크롤링된 기사가 없습니다.")
+                return
+            
+            st.success(f"✅ {len(df_raw)}개 기사 크롤링 완료!")
+            progress_bar.progress(30)
+            
+            # 요약 및 임베딩
+            status_text.info("📝 요약 및 임베딩 생성 중...")
+            ap.build_ready_rows_from_naver(df_raw)
+            
+            progress_bar.progress(100)
+            status_text.success("✅ 모든 작업 완료!")
+            st.balloons()
+            
+        except Exception as e:
+            st.error(f"❌ 오류 발생: {e}")
+    
+    st.divider()
+    
+    # 현재 DB 상태
+    st.subheader("📊 데이터베이스 현황")
+    df_articles = repo.load_articles()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("총 기사 수", len(df_articles))
+    with col2:
+        st.metric("소스 종류", df_articles['source'].nunique() if not df_articles.empty else 0)
+    with col3:
+        st.metric("DB 크기", f"{len(df_articles)} 건")
+    
+    if not df_articles.empty:
+        st.subheader("최신 기사 목록")
+        display_df = df_articles[['title', 'source', 'published_at', 'status']].head(10)
+        st.dataframe(display_df, use_container_width=True)
