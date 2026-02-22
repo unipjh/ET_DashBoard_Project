@@ -387,5 +387,3 @@ def fetch_article_from_url(url: str, source: str = "manual", timeout_sec: int = 
     except Exception as e:
         print(f"❌ URL 크롤링 실패 ({url}): {e}")
         return pd.DataFrame()
-
-
