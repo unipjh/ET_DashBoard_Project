@@ -1,23 +1,13 @@
-# Streamlit_Rendering/recommender.py
-import json
+
 import numpy as np
 import pandas as pd
+import json
 
-def _cosine(a, b) -> float:
-    a = np.asarray(a, dtype=float)
-    b = np.asarray(b, dtype=float)
-    denom = (np.linalg.norm(a) * np.linalg.norm(b))
-    if denom == 0:
-        return 0.0
-    return float(np.dot(a, b) / denom)
+def _cosine_sim(a, b):
+    a, b = np.array(a), np.array(b)
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def base_similarity(df_articles: pd.DataFrame, query_vec: list[float]) -> np.ndarray:
-    scores = []
-    for _, r in df_articles.iterrows():
-        vec = json.loads(r["embed_summary"])
-        scores.append(_cosine(query_vec, vec))
-    return np.asarray(scores, dtype=float)
-
-def session_profile_vectors(events_df: pd.DataFrame, articles_df: pd.DataFrame, n_recent: int = 5):
-    # TODO: 세션 벡터(최근 본 기사 embed_summary 평균), 프로필(키워드 카운트 기반) 등을 구성
-    raise NotImplementedError
+def get_recommendations_by_article(df_all, target_id, top_n=3):
+    # 실제 구현 시에는 DB의 article_chunks에서 target_id와 유사한 다른 article_id를 찾는 쿼리 권장
+    # 여기서는 간단히 상위 리스트 반환으로 대체 가능
+    return df_all[df_all["article_id"] != target_id].head(top_n)
