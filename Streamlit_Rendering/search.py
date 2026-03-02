@@ -6,7 +6,7 @@ import google.generativeai as genai
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 1. 초기 설정 (API 키를 입력하세요)
-GEMINI_API_KEY = "" # 본인 api 키
+GEMINI_API_KEY = "AIzaSyCS-p0a8ZgbRgVE01d5oGyafWJy5yh48xw" # 본인 api 키
 genai.configure(api_key=GEMINI_API_KEY)
 DB_PATH = "app_db.duckdb"
 
@@ -17,13 +17,33 @@ def get_gemini_summary(text):
     response = model.generate_content(f"다음 뉴스를 3문장 이내로 핵심만 요약해줘:\n\n{text}")
     return response.text
 
+# search.py
+
 def get_gemini_embedding(text):
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=text,
-        task_type="retrieval_document"
-    )
-    return result['embedding']
+    """검색어를 벡터로 변환 (001 모델로 통일)"""
+    import google.generativeai as genai
+    
+    # 모델명을 001로 변경
+    model_name = "models/embedding-001" 
+    
+    try:
+        result = genai.embed_content(
+            model=model_name,
+            content=text,
+            task_type="retrieval_query" 
+        )
+        embedding = result['embedding']
+        
+        # DB의 FLOAT[768] 규격과 맞추는 방어 로직
+        if len(embedding) > 768:
+            embedding = embedding[:768]
+        elif len(embedding) < 768:
+            embedding = embedding + [0.0] * (768 - len(embedding))
+            
+        return embedding
+    except Exception as e:
+        print(f"❌ 검색 임베딩 생성 실패: {e}")
+        return [0.0] * 768
 
 # 3. DB 전용 테이블 생성 및 초기화
 def init_experiment_db():

@@ -1,4 +1,3 @@
-# --- Core Framework & Utils ---
 streamlit==1.49.1
 pandas>=2.2.2
 numpy<2.0.0
@@ -7,18 +6,11 @@ tqdm
 duckdb
 lxml
 beautifulsoup4
+dotenv
 
-# --- AI & LLM ---
 google-generativeai
 langchain
 langchain-text-splitters
 
-# --- Visualization ---
 altair
 plotly
-
-# --- Optional (추후 사용 가능) ---
-# torch (필요시만 설치)
-# kobert-transformers (필요시만 설치)
-# keybert (필요시만 설치)
-# sentence-transformers (필요시만 설치)

@@ -314,9 +314,13 @@ def fetch_articles_from_naver(max_articles_per_category=30):
     df = pd.DataFrame(results)
     print(f"✅ {len(df)}개 기사 크롤링 완료")
 
-    # 본문 정제
+    # 1. 본문 정제 (순서 변경: 정제를 먼저 수행)
     print("🧹 본문 노이즈 제거 중...")
     df["content"] = df["content"].apply(clean_news_content)
+
+    # 2. 정제 후 글자 길이 제한 (200자 미만 필터링 추가)
+    # 알맹이가 없는 기사는 여기서 걸러집니다.
+    df = df[df["content"].str.len() >= 200]
 
     # 중복 제거
     df['title'] = df['title'].str.replace(r'\(풀영상\)', '', regex=True)\
