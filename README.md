@@ -90,9 +90,15 @@ streamlit run app.py
 ```text
 .
 ├─ app.py                        # Streamlit 엔트리 포인트
-├─ app_db.duckdb                 # DuckDB 파일 (자동 생성)
-├─ .env                          # Gemini API 키 설정
+├─ app_db.duckdb                 # DuckDB 파일 (자동 생성, .gitignore)
+├─ .env                          # Gemini API 키 설정 (.gitignore)
 ├─ requirements.txt
+├─ README.md
+│
+├─ docs/
+│   ├─ CLAUDE.md                 # 프로젝트 가이드 (Claude 전용)
+│   ├─ TD1.md                    # TD1 신뢰도 모듈 기술 계획
+│   └─ TD_explain.md             # 전체 기술 계획 상세 문서
 │
 └─ Streamlit_Rendering/
     ├─ __init__.py
