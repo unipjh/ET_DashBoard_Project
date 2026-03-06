@@ -8,11 +8,9 @@ from Streamlit_Rendering.crawl import fetch_articles_from_naver
 from Streamlit_Rendering.trust import score_trust
 import random
 import time
-import os
-from dotenv import load_dotenv
+from Streamlit_Rendering.config import get_gemini_api_key
 
-load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = get_gemini_api_key()
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ============================================================

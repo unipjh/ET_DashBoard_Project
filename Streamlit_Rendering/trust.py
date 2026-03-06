@@ -6,10 +6,9 @@ import json
 import random
 import time
 import google.generativeai as genai
-from dotenv import load_dotenv
+from Streamlit_Rendering.config import get_gemini_api_key
 
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key=get_gemini_api_key())
 
 # ============================================================
 # 가중치 상수 (수동 조정 가능)

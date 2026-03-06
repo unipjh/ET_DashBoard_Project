@@ -1,4 +1,3 @@
-import os
 import json
 import duckdb
 import pandas as pd
@@ -6,8 +5,8 @@ import google.generativeai as genai
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 1. 초기 설정 (API 키를 입력하세요)
-GEMINI_API_KEY = "AIzaSyCS-p0a8ZgbRgVE01d5oGyafWJy5yh48xw" # 본인 api 키
-genai.configure(api_key=GEMINI_API_KEY)
+from Streamlit_Rendering.config import get_gemini_api_key
+genai.configure(api_key=get_gemini_api_key())
 DB_PATH = "app_db.duckdb"
 
 # 2. Gemini 유틸리티 함수
