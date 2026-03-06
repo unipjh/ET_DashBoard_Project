@@ -17,3 +17,6 @@ __pycache__/
 venv/
 etvenv1/
 etvenv/
+
+# Unused directories
+ET_DashBoard_Project/
