@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Streamlit
+.streamlit/
+
+# DuckDB
+*.duckdb
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+.env
+venv/
+etvenv1/
+etvenv/
+
+# Unused directories
+ET_DashBoard_Project/

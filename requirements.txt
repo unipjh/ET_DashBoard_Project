@@ -1,0 +1,16 @@
+streamlit==1.49.1
+pandas>=2.2.2
+numpy<2.0.0
+requests
+tqdm
+duckdb
+lxml
+beautifulsoup4
+dotenv
+
+google-generativeai
+langchain
+langchain-text-splitters
+
+altair
+plotly
