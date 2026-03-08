@@ -179,7 +179,8 @@ render_search_results_page(query)
 render_detail_page(aid)
 ```
 
-- 좌: AI 요약 + 관련 기사 추천
+- 좌: AI 요약 + 키워드 제공 + 관련 기사 추천
+  - 추출된 키워드를 대분류 > 중분류 기준으로 그룹화
   - 관련 기사: **제목+요약문** 임베딩으로 검색 (full_text 대비 노이즈 감소)
   - `repo.search_similar_chunks_excluding()` 으로 현재 기사 SQL단에서 제외
 - 우: 출처/날짜/원문 링크 + **신뢰도 분석 패널** + 기사 전문
@@ -210,7 +211,8 @@ render_admin_page()
 run_gemini_summary(text: str) -> str
 ```
 
-- Gemini 2.5 Flash Lite로 뉴스 3문장 요약
+- Gemini 2.5 Flash Lite로 글 길이에 맞춘 요약 진행
+- 5개의 핵심 키워드(대분류 > 중분류 > 소분류 형태)를 딕셔너리 형태로 반환.
 - 429(할당량 초과) 에러 시 30~60초 후 자동 재시도
 
 ```python
@@ -425,9 +427,10 @@ run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> list
 | published_at | VARCHAR | 발행일 |
 | full_text | VARCHAR | 기사 전문 |
 | summary_text | VARCHAR | Gemini 요약 |
-| keywords | VARCHAR | 키워드 (JSON, 미사용) |
-| embed_full | VARCHAR | 전문 임베딩 (미사용) |
-| embed_summary | VARCHAR | 요약 임베딩 (미사용) |
+| keywords | VARCHAR | 핵심 키워드 리스트 (JSON 문자열) |
+| embed_full | VARCHAR | 원문 전체 임베딩 |
+| embed_summary | VARCHAR | 요약문 임베딩 |
+| embed_keywords | VARCHAR | 키워드 임베딩 |
 | trust_score | INTEGER | 신뢰도 종합 점수 (0~100) |
 | trust_verdict | VARCHAR | 신뢰도 판정 (likely_true / uncertain / likely_false) |
 | trust_reason | VARCHAR | 종합 판단 근거 |
@@ -458,6 +461,8 @@ run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> list
 | Contextual Chunking | 청크에 제목/출처/카테고리 prefix 부착 | `admin_pipeline.py` |
 | 청킹 전략 | `chunk_size=400`, `chunk_overlap=150`, 한국어 sentence separator | `admin_pipeline.py` |
 | 제목 전용 청크 | `[제목] {title}` 별도 임베딩 저장 → 키워드 검색 대응 | `admin_pipeline.py` |
+| JSON 응답 강제 | response_mime_type을 사용하여 안정적인 요약 및 키워드 파싱 보장 | `admin_pipeline.py` |
+| 계층형 키워드 UI | 대분류 > 중분류 > 소분류 형식의 키워드를 파싱해 UI상에서 보기 좋게 그룹화 | `functions.py` |
 | 관련 기사 검색 개선 | full_text 대신 제목+요약 임베딩으로 관련 기사 탐색 | `functions.py` |
 | SQL단 현재 기사 제외 | `search_similar_chunks_excluding()` 으로 현재 기사 SQL에서 제외 | `repo.py` |
 | dedupe_per_article | article_id당 최고 점수 청크만 남김 | `repo.py` |
