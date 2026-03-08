@@ -14,10 +14,12 @@
   - Gemini API를 통한 자동 요약
   - Contextual Chunking + 벡터 임베딩 기반 시맨틱 검색
   - 관련 기사 추천 (제목+요약 임베딩 기반 유사도)
+  - **TELLER 기반 신뢰도 분석** (5개 기준, Gemini Cognitive + Weighted Sum Rule)
 - 성과물:
   - ✔ 로컬 및 URL로 작동하는 서비스 (Streamlit Cloud)
   - ✔ 네이버 뉴스 크롤링 → Gemini 자동 요약 파이프라인
   - ✔ 청크 단위 임베딩 + DuckDB 벡터 검색
+  - ✔ 기사별 신뢰도 자동 분석 및 UI 표시
   - ✔ 이후 확장 가능한 토대 확보
 
 ### 전체 플로우
@@ -25,32 +27,28 @@
 ```
 [관리자]
   → 크롤링 버튼 클릭
-  → crawl.py: 네이버 뉴스 크롤링
-  → admin_pipeline.py: Gemini 요약 + Contextual Chunking + 임베딩 생성
+  → crawl.py: 네이버 뉴스 크롤링 (8개 카테고리, 병렬, 본문 정제 + 중복 제거)
+  → admin_pipeline.py: Gemini 요약 + Contextual Chunking + 임베딩 + 신뢰도 분석
   → repo.py: DuckDB (articles + article_chunks) 적재
 
+[관리자 - 신뢰도 일괄 재분석]
+  → trust_score=0인 기사 목록 조회
+  → score_trust() 호출 → repo.update_article_trust() 로 개별 업데이트
+
 [사용자]
-  → 메인 페이지: 최신 기사 리스트 조회 (페이지네이션)
+  → 메인 페이지: 최신 기사 리스트 조회 (페이지네이션, 10개씩)
   → AI 검색: 검색어 임베딩(retrieval_query) → 유사 청크 검색 → 관련 기사 반환
-  → 상세 페이지: 요약문 + 원문 + 관련 기사 추천 (제목+요약 임베딩 기반)
+  → 상세 페이지: AI 요약 + 신뢰도 분석 패널 + 원문 + 관련 기사 추천
 ```
-
-### 🎯 진행 중인 기능
-
-- 관리자 버튼을 통해 **네이버 뉴스 크롤링 → Gemini 요약/임베딩 → DB 적재**
-- 사용자 페이지에서는 **DB에 저장된 기사만 조회**
-- 시맨틱 검색: **검색어 임베딩(retrieval_query) → article_chunks 코사인 유사도 검색**
-- 상세 페이지: **제목+요약 임베딩 기반 관련 기사 추천**
-- UI, DB, 크롤링, 모델링을 **파일 단위로 명확히 분리**
 
 ### 🧠 현재 단계 (MVP)
 
-- 크롤링: 네이버 뉴스 실제 크롤러 (`crawl.py`)
+- 크롤링: 네이버 뉴스 실제 크롤러 (`crawl.py`) — 8개 카테고리, MAX_WORKERS=10 병렬 처리
 - 요약: Gemini 2.5 Flash Lite (`admin_pipeline.py`)
-- 임베딩: Gemini Embedding 001 모델, `task_type` 분리 적용 (`admin_pipeline.py`)
+- 임베딩: Gemini Embedding 001 모델 (768차원), `task_type` 분리 적용
 - 청킹: Contextual Chunking (제목/출처/카테고리 prefix) + 제목 전용 청크
 - DB: DuckDB 파일 기반 (`articles` + `article_chunks` 테이블)
-- 신뢰도: 더미 구현 (`trust.py`)
+- **신뢰도: TELLER 기반 실제 분석 구현 완료** (`trust.py`) — Gemini 2.5 Flash, 5개 기준 가중합산
 - UI: Streamlit
 
 ---
@@ -80,8 +78,10 @@ streamlit run app.py
 1. **⚙️ Admin** 버튼 클릭
 2. **카테고리당 기사 수** 설정 (5~50개)
 3. **🚀 크롤링 시작** 버튼 클릭
-4. 크롤링 → Gemini 요약/임베딩 → DB 적재 자동 진행
+4. 크롤링 → Gemini 요약/임베딩/신뢰도 분석 → DB 적재 자동 진행
 5. 사용자 페이지에서 기사 조회 및 AI 검색 가능
+
+> 기존 DB에 trust_score=0인 기사가 있다면 Admin의 **🔍 신뢰도 일괄 분석** 버튼으로 재분석 가능
 
 ---
 
@@ -104,13 +104,13 @@ streamlit run app.py
     ├─ __init__.py
     │
     ├─ functions.py              # UI 렌더링 (사용자 / 관리자 페이지)
-    ├─ admin_pipeline.py         # 관리자 파이프라인 (Gemini 요약/임베딩, 청킹)
+    ├─ admin_pipeline.py         # 관리자 파이프라인 (Gemini 요약/임베딩/신뢰도, 청킹)
     ├─ crawl.py                  # 네이버 뉴스 크롤링 전담
     │
     ├─ repo.py                   # DuckDB 입출력 전담
     ├─ data.py                   # MOCK 데이터
     │
-    ├─ trust.py                  # 신뢰도 모델 (현재 더미)
+    ├─ trust.py                  # TELLER 기반 신뢰도 분석 모듈 (실제 구현)
     └─ search.py                 # Gemini 임베딩 기반 RAG 검색 실험용 스크립트
 ```
 
@@ -148,7 +148,7 @@ streamlit run app.py
 **역할**
 
 - Streamlit 화면 렌더링 전담
-- DB 조회 및 Gemini 임베딩 호출 (`ap.run_gemini_embedding()`)
+- DB 조회 및 Gemini 임베딩 호출
 - 뒤로가기 로직으로 상세 → 검색결과 → 메인 단계별 이동 지원
 
 #### 주요 함수
@@ -180,16 +180,18 @@ render_detail_page(aid)
 ```
 
 - 좌: AI 요약 + 관련 기사 추천
-  - 관련 기사: **제목+요약문** 임베딩으로 검색 (기존 full_text 대비 노이즈 감소)
+  - 관련 기사: **제목+요약문** 임베딩으로 검색 (full_text 대비 노이즈 감소)
   - `repo.search_similar_chunks_excluding()` 으로 현재 기사 SQL단에서 제외
-- 우: 출처/날짜/원문 링크 + 기사 전문
+- 우: 출처/날짜/원문 링크 + **신뢰도 분석 패널** + 기사 전문
+  - 신뢰도 패널: 종합 점수, 판정(likely_true/uncertain/likely_false), 기준별 세부 점수, 종합 판단 근거
 
 ```python
 render_admin_page()
 ```
 
-- 카테고리당 기사 수 설정
-- 크롤링 → 요약/임베딩 → DB 적재 버튼
+- 카테고리당 기사 수 설정 (5~50개)
+- 크롤링 → 요약/임베딩/신뢰도 → DB 적재 버튼
+- **신뢰도 일괄 분석**: trust_score=0인 미분석 기사 재분석 버튼
 - DB 현황 (총 기사 수, 소스 종류, 최신 기사 목록)
 
 ---
@@ -198,7 +200,7 @@ render_admin_page()
 
 **역할**
 
-- 크롤링된 기사를 받아 Gemini 요약 + Contextual Chunking + 임베딩 생성 후 DB 적재
+- 크롤링된 기사를 받아 Gemini 요약 + Contextual Chunking + 임베딩 생성 + 신뢰도 분석 후 DB 적재
 - `.env`의 `GEMINI_API_KEY`를 자동으로 로드
 - 임베딩 모델: `models/gemini-embedding-001` (768차원), `task_type` 파라미터로 용도 분리
 
@@ -212,15 +214,6 @@ run_gemini_summary(text: str) -> str
 - 429(할당량 초과) 에러 시 30~60초 후 자동 재시도
 
 ```python
-run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> list
-```
-
-- `task_type` 파라미터로 용도 분리
-  - 문서 적재 시: `"retrieval_document"` (기본값)
-  - 검색 쿼리 시: `"retrieval_query"` (함수 호출 측에서 지정)
-- 빈 텍스트나 실패 시 영벡터(768차원) 반환
-
-```python
 _make_chunk_context(title, source, category, chunk_text) -> str
 ```
 
@@ -232,10 +225,10 @@ build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int
 ```
 
 - 청킹 전략: `chunk_size=400`, `chunk_overlap=150`, 한국어 문장 단위 separator 적용
-- 기사별: Gemini 요약 → DB 저장 (`articles`)
+- 기사별 처리 순서: Gemini 요약 → **신뢰도 분석** → DB 저장 (`articles`)
 - 청크별: Contextual Chunking → `retrieval_document` 임베딩 → DB 저장 (`article_chunks`)
 - **제목 전용 청크 추가**: `[제목] {title}` 형태로 별도 임베딩 저장 → 짧은 키워드 검색 대응
-- API 속도 제한 회피: 요약 후 2초, 청크당 0.5초, 기사 완료 후 3초 대기
+- API 속도 제한 회피: 요약 후 2초, 신뢰도 분석 후 2초, 청크당 0.5초, 기사 완료 후 3초 대기
 
 **crawl.py와의 인터페이스 계약**
 
@@ -255,7 +248,17 @@ build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int
 **역할**
 
 - 네이버 뉴스 실제 크롤링 로직
-- 본문 정제, 중복 제거, 유사 기사 필터링 포함
+- 본문 정제, 중복 제거, 유사 기사 필터링, 기자명 필터링 포함
+
+#### 설정값
+
+| 항목 | 값 |
+|---|---|
+| 크롤링 대상 | 정치/경제/사회/생활·문화/세계/IT·과학/연예/스포츠 (8개 카테고리) |
+| 병렬 처리 | `MAX_WORKERS=10` (ThreadPoolExecutor) |
+| 수집 기간 | 최근 7일 (`START_DATE = now - 7days`) |
+| 본문 최소 길이 | 200자 미만 필터링 |
+| 중복 제거 임계값 | Jaccard 유사도 0.7 이상 시 제거 |
 
 #### 주요 함수
 
@@ -263,11 +266,24 @@ build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int
 fetch_articles_from_naver(max_articles_per_category=30) -> pd.DataFrame
 ```
 
-- 8개 카테고리(정치/경제/사회/생활·문화/세계/IT·과학/연예/스포츠) 병렬 크롤링
+- 8개 카테고리 URL 수집 → ThreadPoolExecutor 병렬 크롤링
 - 반환 컬럼: `date`, `category`, `source`, `title`, `reporter`, `comment_cnt`, `like_cnt`, `link`, `content`
-- 200자 미만 본문 필터링, Jaccard 유사도 기반 중복 제거 적용
+- 처리 파이프라인: 본문 정제(`clean_news_content`) → 200자 필터링 → 제목 중복 제거 → 기자명 필터링 → Jaccard 유사 기사 제거
 
-> ⚠️ 반환 포맷은 **절대 변경하지 말 것** (admin_pipeline과의 계약 인터페이스)
+```python
+clean_news_content(text) -> str
+```
+
+- 언론사명, 이메일, SNS ID, 전화번호, URL, 기자명 서명, 특수문자 제거
+- 불완전한 마지막 문장 자동 잘라내기 (마지막 `다.` 또는 `.` 이후 제거)
+
+```python
+fetch_article_from_url(url, source, timeout_sec) -> pd.DataFrame
+```
+
+- 단일 URL 크롤링 (하위 호환성 유지용)
+
+> ⚠️ `fetch_articles_from_naver()`의 반환 포맷은 **절대 변경하지 말 것** (admin_pipeline과의 계약 인터페이스)
 
 ---
 
@@ -306,7 +322,6 @@ search_similar_chunks_excluding(query_vector, exclude_article_id, limit=5, min_s
 ```
 
 - 상세 페이지 전용: 현재 기사를 **SQL 단에서 제외** 후 관련 기사 검색
-- 기존 Python 단 필터링 대비 limit 개수를 정확하게 채울 수 있음
 
 ```python
 load_articles() -> pd.DataFrame
@@ -314,22 +329,57 @@ load_articles() -> pd.DataFrame
 
 - 전체 기사 조회 (published_at 내림차순)
 
+```python
+load_articles_without_trust() -> pd.DataFrame
+```
+
+- `trust_score=0`인 기사만 반환 (신뢰도 일괄 재분석용)
+
+```python
+update_article_trust(article_id, score, verdict, reason, per_criteria)
+```
+
+- 단일 기사의 trust 컬럼만 UPDATE (일괄 재분석 시 사용)
+
 ---
 
-### 4.6 `trust.py` (신뢰도 모델)
+### 4.6 `trust.py` (신뢰도 분석 모듈)
 
 **역할**
 
-- 신뢰도 모델 구현 위치 (현재 더미)
-- 관리자 파이프라인에서만 사용 예정
+- **TELLER 기반 신뢰도 분석 실제 구현** (Gemini Cognitive + Weighted Sum Rule)
+- 관리자 파이프라인(크롤링 시 자동) 및 일괄 재분석에서 모두 사용
+
+#### 분석 모델
+
+- 사용 모델: `gemini-2.5-flash` (`response_mime_type: application/json`)
+- 5개 기준으로 0~10점 채점 후 가중합산 → 0~100점 종합 점수 산출
+
+#### 가중치 설정
+
+| 기준 | 가중치 | 방향 | 설명 |
+|---|---|---|---|
+| `source_credibility` | 0.25 | 정방향 | 출처 신뢰성 |
+| `evidence_support` | 0.25 | 정방향 | 근거 지지도 |
+| `style_neutrality` | 0.20 | 정방향 | 문체 중립성 |
+| `logical_consistency` | 0.20 | 정방향 | 논리 일관성 |
+| `clickbait_risk` | -0.10 | **역방향** | 어뷰징 위험도 (높을수록 감점) |
+
+#### 판정 기준
+
+| 점수 범위 | 판정 | 배지 |
+|---|---|---|
+| 70점 이상 | `likely_true` | 🟢 |
+| 40~69점 | `uncertain` | 🟡 |
+| 39점 이하 | `likely_false` | 🔴 |
 
 ```python
-score_trust_dummy(text, source, low=30, high=100) -> dict
+score_trust(text: str, source: str | None = None) -> dict
 ```
 
-- 30~100 사이 무작위 점수 반환
 - 반환 포맷: `score`, `verdict`, `reason`, `per_criteria` (5개 기준별 점수)
-- 추후 실제 모델 교체 시 동일 반환 포맷 유지
+- 429(할당량 초과) 에러 시 30~60초 후 자동 재시도
+- Gemini 호출 실패 시 `_fallback()` 으로 score=0, verdict="uncertain" 반환
 
 ---
 
@@ -343,26 +393,13 @@ score_trust_dummy(text, source, low=30, high=100) -> dict
 #### 주요 함수
 
 ```python
-get_gemini_embedding(text) -> list
+run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> list
 ```
 
-- `task_type="retrieval_query"` 고정 (검색용)
+- 빈 텍스트나 실패 시 영벡터(768차원) 반환
+- 길이 초과/부족 시 잘라내기/패딩 처리
 
-```python
-run_experiment()
-```
-
-- MOCK_DB에서 기사 5개 처리 → 청크 분할 → 임베딩 → DB 저장
-
-```python
-search_and_analyze(query)
-```
-
-- 검색어 임베딩 → 코사인 유사도 상위 3개 청크 검색
-- Gemini로 최종 분석 브리핑 생성 (Explainable AI)
-
-> ⚠️ API 키가 하드코딩되어 있음 → `.env` + `load_dotenv()` 방식으로 교체 필요  
-> ⚠️ 문서 적재 시 `task_type="retrieval_document"` 미적용 → `admin_pipeline.py`와 혼용 시 유사도 왜곡 가능
+> ⚠️ `search.py`는 실험용이므로 `admin_pipeline.py`와 혼용 시 `task_type` 설정에 주의
 
 ---
 
@@ -391,10 +428,10 @@ search_and_analyze(query)
 | keywords | VARCHAR | 키워드 (JSON, 미사용) |
 | embed_full | VARCHAR | 전문 임베딩 (미사용) |
 | embed_summary | VARCHAR | 요약 임베딩 (미사용) |
-| trust_score | INTEGER | 신뢰도 점수 (더미) |
-| trust_verdict | VARCHAR | 신뢰도 판정 |
-| trust_reason | VARCHAR | 판정 근거 |
-| trust_per_criteria | VARCHAR | 기준별 신뢰도 (JSON) |
+| trust_score | INTEGER | 신뢰도 종합 점수 (0~100) |
+| trust_verdict | VARCHAR | 신뢰도 판정 (likely_true / uncertain / likely_false) |
+| trust_reason | VARCHAR | 종합 판단 근거 |
+| trust_per_criteria | VARCHAR | 기준별 신뢰도 점수 (JSON) |
 | status | VARCHAR | 처리 상태 |
 
 ### article_chunks 테이블
@@ -416,7 +453,7 @@ search_and_analyze(query)
 
 | 포인트 | 내용 | 적용 위치 |
 |---|---|---|
-| 임베딩 모델 통일 | `gemini-embedding-001` 단일 모델 사용 | `admin_pipeline.py` |
+| 임베딩 모델 통일 | `gemini-embedding-001` 단일 모델 사용 | `admin_pipeline.py`, `search.py` |
 | task_type 분리 | 적재: `retrieval_document` / 검색: `retrieval_query` | `admin_pipeline.py`, `functions.py` |
 | Contextual Chunking | 청크에 제목/출처/카테고리 prefix 부착 | `admin_pipeline.py` |
 | 청킹 전략 | `chunk_size=400`, `chunk_overlap=150`, 한국어 sentence separator | `admin_pipeline.py` |
@@ -424,7 +461,10 @@ search_and_analyze(query)
 | 관련 기사 검색 개선 | full_text 대신 제목+요약 임베딩으로 관련 기사 탐색 | `functions.py` |
 | SQL단 현재 기사 제외 | `search_similar_chunks_excluding()` 으로 현재 기사 SQL에서 제외 | `repo.py` |
 | dedupe_per_article | article_id당 최고 점수 청크만 남김 | `repo.py` |
-| min_score 완화 | 기본값 0.7 → 0.5, 검색 결과 페이지 0.65 적용 | `repo.py`, `functions.py` |
+| min_score 완화 | 기본값 0.5, 검색 결과 페이지 0.65 적용 | `repo.py`, `functions.py` |
+| 본문 정제 강화 | 언론사명/이메일/SNS/전화번호/불완전문장 제거 | `crawl.py` |
+| 병렬 크롤링 | ThreadPoolExecutor (MAX_WORKERS=10) | `crawl.py` |
+| 신뢰도 분석 | TELLER 기반 5개 기준 가중합산, Gemini 2.5 Flash | `trust.py` |
 
 ---
 
@@ -434,24 +474,26 @@ search_and_analyze(query)
 
 - `admin_pipeline.py`가 백엔드 모든 흐름을 조율
 - UI(`functions.py`)는 DB 조회 + Gemini 임베딩 호출만 수행
+- 신뢰도 분석(`trust.py`)은 pipeline과 독립적으로 호출 가능 (일괄 재분석 지원)
 
 ### ✅ 서버 없는 구조
 
 - Streamlit 실행 프로세스 자체가 서버 역할
 - DuckDB는 파일 기반 DB (`app_db.duckdb`)
-- API 키는 `.env` + `load_dotenv()`로 관리
+- API 키는 `.env` + `load_dotenv()` 또는 Streamlit Cloud secrets로 관리
 
 ### ✅ API 속도 제한 대응
 
 - 기사당 요약 후 2초 대기
+- 기사당 신뢰도 분석 후 2초 대기
 - 청크당 임베딩 후 0.5초 대기
 - 기사 처리 완료 후 3초 대기
-- 429 에러 시 30~60초 랜덤 대기 후 자동 재시도
+- 429 에러 시 30~60초 랜덤 대기 후 자동 재시도 (요약, 신뢰도 분석 모두 적용)
 
 ### ✅ 확장 가능성
 
 - 추후 FastAPI / 서버 환경으로 전환해도 `crawl.py`, `admin_pipeline.py`, `repo.py` 그대로 재사용 가능
-- `trust.py`의 더미 구현을 실제 모델로 교체 시 반환 포맷 유지
+- `trust.py`의 반환 포맷 (`score`, `verdict`, `reason`, `per_criteria`) 유지 시 모델 교체 가능
 
 ---
 
@@ -459,9 +501,9 @@ search_and_analyze(query)
 
 | 역할 | 수정 파일 |
 |---|---|
-| 크롤링 | `crawl.py`, `admin_pipeline.py` |
-| 요약 / 임베딩 / 청킹 | `admin_pipeline.py` |
-| 신뢰도 모델 | `trust.py`, `admin_pipeline.py` |
+| 크롤링 | `crawl.py` |
+| 요약 / 임베딩 / 청킹 / 파이프라인 조율 | `admin_pipeline.py` |
+| 신뢰도 모델 | `trust.py` |
 | UI / 페이지 라우팅 | `functions.py`, `app.py` |
 | DB 스키마 / 검색 쿼리 | `repo.py` |
 | RAG 실험 | `search.py` |
