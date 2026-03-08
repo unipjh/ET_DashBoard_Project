@@ -3,6 +3,7 @@ import time
 import random
 import pandas as pd
 import google.generativeai as genai
+import concurrent.futures
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 from Streamlit_Rendering import repo
@@ -11,10 +12,7 @@ from Streamlit_Rendering.search import run_gemini_embedding
 from Streamlit_Rendering.trust import score_trust
 from Streamlit_Rendering.config import get_gemini_api_key
 
-
-
 genai.configure(api_key=get_gemini_api_key())
-
 
 def run_gemini_summary(text: str) -> str:
     """Gemini로 본문 길이 맞춤 요약 및 키워드 추출 (JSON 반환)"""
@@ -79,53 +77,111 @@ def _make_chunk_context(title: str, source: str, category: str, chunk_text: str)
 
 def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
     """
-    크롤링된 기사를 처리하여 DB에 적재
+    [최적화 파이프라인]
+    Phase 1: 원문 기반 청킹 및 기본 임베딩 즉시 DB 적재 (빠른 저장 및 유실 방지)
+    Phase 2: 요약, 신뢰도 분석(병렬 처리) 및 종속 임베딩 생성 후 DB 업데이트
     """
-    rows, chunk_rows = [], []
-
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=400,
-        chunk_overlap=150,
+        chunk_size=400, chunk_overlap=150,
         separators=["다.\n", "다. ", ".\n", ". ", "\n\n", "\n", " ", ""]
     )
 
     total = len(df_raw)
+    pending_aids = []
+
+    # ==========================================
+    # 🚀 Phase 1: 빠른 DB 선적재 (원문 & 청크 임베딩)
+    # ==========================================
+    print("\n=== [Phase 1] 원문/청크 임베딩 추출 및 DB 선적재 ===")
     for idx, r in df_raw.iterrows():
         progress = int((idx + 1) / total * 100)
-        print(f"📦 [{progress}%] {idx+1}/{total} - {r.get('title', '')[:40]}")
+        print(f"📦 [Phase 1: {progress}%] {idx+1}/{total} - {r.get('title', '')[:40]}")
 
         full_text = str(r.get("content", ""))
-        title = str(r.get("title", ""))
-        source = str(r.get("source", "미상"))
-        url = str(r.get("link", ""))
-        published_at = str(r.get("date", "날짜미상"))
-        reporter = str(r.get("reporter", "미상"))
-        category = str(r.get("category", "일반"))
-
         if len(full_text.strip()) < 10:
             print(f"⚠️ {idx+1}번 기사 본문이 비어있어 건너뜁니다.")
             continue
 
         aid = f"naver_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}"
+        title = str(r.get("title", ""))
+        source = str(r.get("source", "미상"))
+        url = str(r.get("link", ""))
+        published_at = str(r.get("date", "날짜미상"))
+        category = str(r.get("category", "일반"))
 
+        # 1. 원문 임베딩 생성
+        embed_full = run_gemini_embedding(full_text, task_type="retrieval_document")
+        time.sleep(0.3)
 
-        # 1. 요약 및 키워드 생성 (반환값이 dict 형식으로 변경됨)
-        print(f"  📝 요약 및 키워드 추출 중...")
-        gemini_result = run_gemini_summary(full_text)
+        # 1차 DB Row 구성 (요약/신뢰도는 임시 값으로 대기)
+        initial_row = {
+            "article_id": aid,
+            "title": title,
+            "source": source,
+            "url": url,
+            "published_at": published_at,
+            "full_text": full_text,
+            "summary_text": "AI 요약 생성 중...",
+            "keywords": "[]",
+            "embed_full": json.dumps(embed_full),
+            "embed_summary": "[]",
+            "embed_keywords": "[]",
+            "trust_score": 0,
+            "trust_verdict": "uncertain",
+            "trust_reason": "분석 대기 중",
+            "trust_per_criteria": "{}",
+            "status": "pending"
+        }
+
+        # 2. 청크 임베딩 생성
+        chunks = splitter.split_text(full_text)
+        chunk_rows = []
+        for i, chunk_text in enumerate(chunks):
+            contextualized = _make_chunk_context(title, source, category, chunk_text)
+            v = run_gemini_embedding(contextualized, task_type="retrieval_document")
+            chunk_rows.append({"chunk_id": f"{aid}_{i}", "article_id": aid, "chunk_text": chunk_text, "embedding": v})
+            time.sleep(0.3)
+
+        # 제목 전용 청크 추가
+        title_embedding = run_gemini_embedding(f"[제목] {title}", task_type="retrieval_document")
+        chunk_rows.append({"chunk_id": f"{aid}_title", "article_id": aid, "chunk_text": f"[제목] {title}", "embedding": title_embedding})
         
+        # ✨ 즉시 DB 적재 (리스트에 모아두지 않아 중간 에러가 나도 데이터 유실 없음)
+        repo.upsert_articles(pd.DataFrame([initial_row]))
+        repo.upsert_chunks(pd.DataFrame(chunk_rows))
+        pending_aids.append(aid)
+
+    # ==========================================
+    # 🧠 Phase 2: 무거운 작업 후처리 및 DB 업데이트 (요약 & 신뢰도)
+    # ==========================================
+    print(f"\n=== [Phase 2] 요약 및 신뢰도 분석 병렬 처리 ({len(pending_aids)}건) ===")
+    
+    # 방금 저장한 pending 상태의 기사들 불러오기
+    df_pending = repo.load_articles()
+    df_pending = df_pending[df_pending['article_id'].isin(pending_aids)]
+
+    for idx, row in df_pending.iterrows():
+        aid = row["article_id"]
+        full_text = row["full_text"]
+        source = row["source"]
+        print(f"  ⏳ [Phase 2] 처리 중... {row['title'][:30]}")
+
+        # ✨ 핵심 최적화: ThreadPoolExecutor를 이용해 요약과 신뢰도 평가를 '동시에' 실행
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_summary = executor.submit(run_gemini_summary, full_text)
+            future_trust = executor.submit(score_trust, full_text, source)
+
+            gemini_result = future_summary.result()
+            trust = future_trust.result()
+
         summary_text = gemini_result.get("summary", "요약 없음")
         keywords_list = gemini_result.get("keywords", [])
-        time.sleep(2)
 
-        # 1-1. 요약 / 키워드 / 원문 임베딩 생성
-        print(f"  🔢 요약/키워드/원문 임베딩 생성 중...")
-        
-        # 딕셔너리가 섞여 있어도 안전하게 문자열 리스트로 변환
+        # 키워드 안전하게 정제
         safe_keywords = []
         if isinstance(keywords_list, list):
             for k in keywords_list:
                 if isinstance(k, dict):
-                    # 딕셔너리일 경우 값(value)들만 추출해서 " > "로 연결
                     safe_keywords.append(" > ".join(str(v) for v in k.values()))
                 else:
                     safe_keywords.append(str(k))
@@ -133,38 +189,20 @@ def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
             safe_keywords = ["키워드 없음"]
 
         keywords_str_for_embed = ", ".join(safe_keywords)
-        
-        # 임베딩 생성 시 safe_keywords 사용
-        embed_keywords = run_gemini_embedding(keywords_str_for_embed, task_type="retrieval_document")
-        time.sleep(0.5)
-        
-        # 요약 임베딩
+
+        # 3. 요약 및 키워드 임베딩 생성 (결과물이 나온 후 실행)
         embed_summary = run_gemini_embedding(summary_text, task_type="retrieval_document")
         time.sleep(0.5)
-
-        # 원문 전문 임베딩 생성 (새로 추가)
-        embed_full = run_gemini_embedding(full_text, task_type="retrieval_document")
+        embed_keywords = run_gemini_embedding(keywords_str_for_embed, task_type="retrieval_document")
         time.sleep(0.5)
 
-
-        # 2. 신뢰도 분석
-        print(f"  🔍 신뢰도 분석 중...")
-        trust = score_trust(full_text, source)
-        time.sleep(2)
-
-        # DB 적재를 위한 row 구성
-        rows.append({
-            "article_id": aid,
-            "title": title,
-            "source": source,
-            "url": url,
-            "published_at": published_at,
-            "full_text": full_text,
+        # 4. DB 정보 Update를 위한 딕셔너리 재구성
+        updated_row = row.to_dict()
+        updated_row.update({
             "summary_text": summary_text,
             "keywords": json.dumps(safe_keywords, ensure_ascii=False),
-            "embed_full": json.dumps(embed_full), #원문 임베딩
-            "embed_summary": json.dumps(embed_summary), #요약 임베딩
-            "embed_keywords": json.dumps(embed_keywords), #키워드 임베딩
+            "embed_summary": json.dumps(embed_summary),
+            "embed_keywords": json.dumps(embed_keywords),
             "trust_score": trust["score"],
             "trust_verdict": trust["verdict"],
             "trust_reason": trust["reason"],
@@ -172,42 +210,9 @@ def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
             "status": "ready"
         })
 
-        # 3. 청크 임베딩 (Contextual Chunking 적용)
-        print(f"  🔢 청크 임베딩 생성 중...")
-        chunks = splitter.split_text(full_text)
+        # ✨ 수정된 내용으로 단건 DB 덮어쓰기 (INSERT OR REPLACE)
+        repo.upsert_articles(pd.DataFrame([updated_row]))
+        time.sleep(2) # 다음 기사로 가기 전 API Rate Limit 조절
 
-        for i, chunk_text in enumerate(chunks):
-            time.sleep(0.5)
-            contextualized = _make_chunk_context(title, source, category, chunk_text)
-            v = run_gemini_embedding(contextualized, task_type="retrieval_document")
-            chunk_rows.append({
-                "chunk_id": f"{aid}_{i}",
-                "article_id": aid,
-                "chunk_text": chunk_text,
-                "embedding": v
-            })
-
-        # 4. 제목 전용 청크 추가
-        title_embedding = run_gemini_embedding(
-            f"[제목] {title}", task_type="retrieval_document"
-        )
-        chunk_rows.append({
-            "chunk_id": f"{aid}_title",
-            "article_id": aid,
-            "chunk_text": f"[제목] {title}",
-            "embedding": title_embedding
-        })
-
-        time.sleep(3)
-
-    # DB 저장
-    if rows:
-        print(f"\n💾 {len(rows)}개 기사를 DB에 저장 중...")
-        repo.upsert_articles(pd.DataFrame(rows))
-
-    if chunk_rows:
-        print(f"💾 {len(chunk_rows)}개 청크를 DB에 저장 중...")
-        repo.upsert_chunks(pd.DataFrame(chunk_rows))
-
-    print(f"✅ 작업 완료! {len(rows)}개 기사 적재됨")
-    return len(rows)
+    print(f"✅ 모든 파이프라인 완료! 총 {len(pending_aids)}개 기사 처리됨")
+    return len(pending_aids)
