@@ -163,10 +163,13 @@ def render_detail_page(aid: str):
         if keywords_list and isinstance(keywords_list, list):
             st.divider()
             st.subheader("🔑 핵심 키워드")
+
+            # 추출된 키워드 중 상위 3개만 자르기
+            display_keywords = keywords_list[:3]
             
             # "대분류 > 중분류"를 Key로, "소분류"들을 Value 리스트로 그룹화
             grouped_kws = {}
-            for kw in keywords_list:
+            for kw in display_keywords:
                 parts = [p.strip() for p in str(kw).split(">")]
                 if len(parts) >= 3:
                     prefix = f"{parts[0]} > {parts[1]}" # 대분류 > 중분류
@@ -295,7 +298,7 @@ def render_admin_page():
     with col1:
         st.caption("카테고리당 기사 수를 지정할 수 있습니다")
     with col2:
-        articles_per_cat = st.number_input("카테고리당 기사 수", min_value=5, max_value=50, value=10)
+        articles_per_cat = st.number_input("카테고리당 기사 수", min_value=2, max_value=50, value=10)
 
     if st.button("🚀 크롤링 시작", type="primary", use_container_width=True):
         progress_bar = st.progress(0)
