@@ -226,6 +226,7 @@ _make_chunk_context(title, source, category, chunk_text) -> str
 build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int
 ```
 
+- 요약/키워드/원문 임베딩 생성
 - 청킹 전략: `chunk_size=400`, `chunk_overlap=150`, 한국어 문장 단위 separator 적용
 - 기사별 처리 순서: Gemini 요약 → **신뢰도 분석** → DB 저장 (`articles`)
 - 청크별: Contextual Chunking → `retrieval_document` 임베딩 → DB 저장 (`article_chunks`)
