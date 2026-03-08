@@ -150,6 +150,43 @@ def render_detail_page(aid: str):
         with st.container(border=True):
             st.markdown(row['summary_text'])
 
+
+        # ── ✨ 핵심 키워드 섹션 (0308추가) ─────────────────────────
+        try:
+            kw_str = row.get("keywords", "[]")
+            if pd.isna(kw_str) or not kw_str:
+                kw_str = "[]"
+            keywords_list = json.loads(kw_str)
+        except Exception:
+            keywords_list = []
+
+        if keywords_list and isinstance(keywords_list, list):
+            st.divider()
+            st.subheader("🔑 핵심 키워드")
+            
+            # "대분류 > 중분류"를 Key로, "소분류"들을 Value 리스트로 그룹화
+            grouped_kws = {}
+            for kw in keywords_list:
+                parts = [p.strip() for p in str(kw).split(">")]
+                if len(parts) >= 3:
+                    prefix = f"{parts[0]} > {parts[1]}" # 대분류 > 중분류
+                    suffix = " > ".join(parts[2:])      # 소분류
+                    grouped_kws.setdefault(prefix, []).append(suffix)
+                else:
+                    grouped_kws.setdefault("기타", []).append(str(kw).strip())
+            
+            # UI 렌더링
+            for prefix, suffixes in grouped_kws.items():
+                if prefix == "기타":
+                    for s in suffixes:
+                        st.markdown(f"🔹 {s}")
+                else:
+                    # 소분류들을 쉼표로 연결하여 한 줄로 나열
+                    subs = ", ".join(suffixes)
+                    st.markdown(f"🔹 **{prefix}** > {subs}")
+        # ── ✨ 핵심 키워드 섹션 추가 끝 ───────────────────────────
+
+
         st.divider()
         st.subheader("🔗 관련 기사")
 
