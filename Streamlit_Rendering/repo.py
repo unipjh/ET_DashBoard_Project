@@ -17,8 +17,6 @@ def init_db():
         full_text VARCHAR,
         summary_text VARCHAR,
         keywords VARCHAR,
-        embed_full VARCHAR,
-        embed_summary VARCHAR,
         embed_keywords VARCHAR,
         trust_score INTEGER,
         trust_verdict VARCHAR,
