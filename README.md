@@ -204,6 +204,7 @@ render_admin_page()
 - 크롤링된 기사를 받아 Gemini 요약 + Contextual Chunking + 임베딩 생성 + 신뢰도 분석 후 DB 적재
 - `.env`의 `GEMINI_API_KEY`를 자동으로 로드
 - 임베딩 모델: `models/gemini-embedding-001` (768차원), `task_type` 파라미터로 용도 분리
+- 초고속 데이터 처리를 위해 `ThreadPoolExecutor`를 활용한 **이중 병렬 처리** 아키텍처 적용
 
 #### 주요 함수
 
@@ -212,7 +213,7 @@ run_gemini_summary(text: str) -> str
 ```
 
 - Gemini 2.5 Flash Lite로 글 길이에 맞춘 요약 진행
-- 5개의 핵심 키워드(대분류 > 중분류 > 소분류 형태)를 딕셔너리 형태로 반환.
+- 5개의 핵심 키워드(대분류 > 중분류 > 소분류 형태)를 JSON(딕셔너리) 형태로 반환.
 - 429(할당량 초과) 에러 시 30~60초 후 자동 재시도
 
 ```python
@@ -225,13 +226,14 @@ _make_chunk_context(title, source, category, chunk_text) -> str
 ```python
 build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int
 ```
-
-- 요약/키워드/원문 임베딩 생성
+- **이중 병렬 처리**: 
+  1) 기사 단위: 최대 3개(`ARTICLE_WORKERS=3`)의 기사를 동시에 처리
+  2) 작업 단위: 단일 기사 내에서 **AI 요약과 신뢰도 분석을 동시에 호출**하여 속도 극대화
 - 청킹 전략: `chunk_size=400`, `chunk_overlap=150`, 한국어 문장 단위 separator 적용
-- 기사별 처리 순서: Gemini 요약 → **신뢰도 분석** → DB 저장 (`articles`)
 - 청크별: Contextual Chunking → `retrieval_document` 임베딩 → DB 저장 (`article_chunks`)
 - **제목 전용 청크 추가**: `[제목] {title}` 형태로 별도 임베딩 저장 → 짧은 키워드 검색 대응
-- API 속도 제한 회피: 요약 후 2초, 신뢰도 분석 후 2초, 청크당 0.5초, 기사 완료 후 3초 대기
+- 불필요한 DB 입출력을 줄이기 위해, 모든 워커의 작업이 끝난 후 **DB에 일괄 적재(Batch Insert)** 수행
+- 요약 임베딩과 원문 임베딩을 제거하고 **청크 임베딩과 키워드 임베딩**만 유지하여 저장 공간 및 비용 최적화
 
 **crawl.py와의 인터페이스 계약**
 
@@ -429,8 +431,6 @@ run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> list
 | full_text | VARCHAR | 기사 전문 |
 | summary_text | VARCHAR | Gemini 요약 |
 | keywords | VARCHAR | 핵심 키워드 리스트 (JSON 문자열) |
-| embed_full | VARCHAR | 원문 전체 임베딩 |
-| embed_summary | VARCHAR | 요약문 임베딩 |
 | embed_keywords | VARCHAR | 키워드 임베딩 |
 | trust_score | INTEGER | 신뢰도 종합 점수 (0~100) |
 | trust_verdict | VARCHAR | 신뢰도 판정 (likely_true / uncertain / likely_false) |
@@ -488,13 +488,11 @@ run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> list
 - DuckDB는 파일 기반 DB (`app_db.duckdb`)
 - API 키는 `.env` + `load_dotenv()` 또는 Streamlit Cloud secrets로 관리
 
-### ✅ API 속도 제한 대응
-
-- 기사당 요약 후 2초 대기
-- 기사당 신뢰도 분석 후 2초 대기
-- 청크당 임베딩 후 0.5초 대기
-- 기사 처리 완료 후 3초 대기
-- 429 에러 시 30~60초 랜덤 대기 후 자동 재시도 (요약, 신뢰도 분석 모두 적용)
+### ✅ API 속도 제한 및 성능 최적화 대응
+- **워커 수 조절**: 무분별한 API 호출을 막기 위해 기사 병렬 처리 워커 수를 3개(`ARTICLE_WORKERS=3`)로 제한
+- **이중 병렬화**: 워커 내부에서 병목이 되는 요약 로직과 신뢰도 분석 로직을 묶어서 병렬 호출
+- 청크당 임베딩 후 최소한의 대기(0.1초)만 수행하여 전체 파이프라인 속도 비약적 향상
+- 429 에러 시 30~60초 랜덤 대기 후 자동 재시도하는 백오프(Backoff) 로직 적용
 
 ### ✅ 확장 가능성
 
