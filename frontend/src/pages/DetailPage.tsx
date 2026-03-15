@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchArticle } from '../api/client'
+import { fetchArticle, fetchRelatedArticles } from '../api/client'
 import TrustGauge from '../components/TrustGauge'
 
 export default function DetailPage() {
@@ -11,6 +11,12 @@ export default function DetailPage() {
     queryKey: ['article', id],
     queryFn: () => fetchArticle(id!),
     enabled: !!id,
+  })
+
+  const { data: related = [] } = useQuery({
+    queryKey: ['related', id],
+    queryFn: () => fetchRelatedArticles(id!),
+    enabled: !!id && !!article,
   })
 
   if (isLoading) return <div className="p-8 text-slate-400">불러오는 중...</div>
@@ -58,6 +64,29 @@ export default function DetailPage() {
           <p className="font-semibold text-slate-700 text-sm mb-3">기사 본문</p>
           <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{article.full_text}</p>
         </div>
+
+        {related.length > 0 && (
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700 mb-3">관련 기사</h2>
+            <div className="space-y-2">
+              {related.map(r => (
+                <div
+                  key={r.article_id}
+                  onClick={() => navigate(`/article/${r.article_id}`)}
+                  className="bg-white rounded-xl border border-slate-100 p-4 cursor-pointer hover:shadow-md transition-shadow"
+                >
+                  <h3 className="font-semibold text-slate-900 text-sm">{r.title}</h3>
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{r.chunk_text}</p>
+                  <div className="flex gap-2 text-xs text-slate-400 mt-2">
+                    <span>{r.source}</span>
+                    <span>·</span>
+                    <span>유사도 {Math.round(r.score * 100)}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   )

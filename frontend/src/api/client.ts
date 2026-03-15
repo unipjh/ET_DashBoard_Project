@@ -46,10 +46,16 @@ export const fetchArticle = (id: string) =>
 export const searchArticles = (query: string, limit = 10) =>
   api.post<SearchResult[]>('/api/search', { query, limit }).then(r => r.data)
 
+export const fetchRelatedArticles = (id: string, limit = 5) =>
+  api.get<SearchResult[]>(`/api/articles/${id}/related`, { params: { limit } }).then(r => r.data)
+
 export const fetchStats = () =>
   api.get<AdminStats>('/api/admin/stats').then(r => r.data)
 
 export const startCrawl = (max_articles_per_category: number) =>
   api.post('/api/admin/crawl', { max_articles_per_category }).then(r => r.data)
+
+export const startAnalyze = () =>
+  api.post<{ status: string; count: number }>('/api/admin/analyze').then(r => r.data)
 
 export default api

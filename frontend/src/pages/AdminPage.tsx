@@ -1,27 +1,43 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { fetchStats, startCrawl } from '../api/client'
+import { fetchStats, startCrawl, startAnalyze } from '../api/client'
 
 export default function AdminPage() {
   const [maxArticles, setMaxArticles] = useState(10)
   const [crawlStatus, setCrawlStatus] = useState<string | null>(null)
+  const [analyzeStatus, setAnalyzeStatus] = useState<string | null>(null)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  const isPolling = crawlStatus === 'started' || analyzeStatus === 'started'
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
-    refetchInterval: crawlStatus === 'started' ? 5000 : false,
+    refetchInterval: isPolling ? 5000 : false,
   })
 
-  const mutation = useMutation({
+  const crawlMutation = useMutation({
     mutationFn: () => startCrawl(maxArticles),
     onSuccess: () => {
       setCrawlStatus('started')
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
     onError: () => setCrawlStatus('error'),
+  })
+
+  const analyzeMutation = useMutation({
+    mutationFn: startAnalyze,
+    onSuccess: (data) => {
+      if (data.status === 'nothing_to_analyze') {
+        setAnalyzeStatus('nothing')
+      } else {
+        setAnalyzeStatus('started')
+        queryClient.invalidateQueries({ queryKey: ['stats'] })
+      }
+    },
+    onError: () => setAnalyzeStatus('error'),
   })
 
   return (
@@ -70,11 +86,11 @@ export default function AdminPage() {
             />
           </div>
           <button
-            onClick={() => { setCrawlStatus(null); mutation.mutate() }}
-            disabled={mutation.isPending}
+            onClick={() => { setCrawlStatus(null); crawlMutation.mutate() }}
+            disabled={crawlMutation.isPending}
             className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
-            {mutation.isPending ? '요청 중...' : '크롤링 시작'}
+            {crawlMutation.isPending ? '요청 중...' : '크롤링 시작'}
           </button>
           {crawlStatus === 'started' && (
             <p className="text-sm text-green-600">크롤링이 백그라운드에서 실행 중입니다. 완료되면 DB 현황이 자동 갱신됩니다.</p>
@@ -83,6 +99,31 @@ export default function AdminPage() {
             <p className="text-sm text-red-500">크롤링 요청에 실패했습니다. 서버 상태를 확인하세요.</p>
           )}
         </div>
+
+        {stats && stats.unanalyzed_count > 0 && (
+          <div className="bg-white rounded-xl border border-slate-100 p-6 space-y-4">
+            <h2 className="font-semibold text-slate-800">신뢰도 분석</h2>
+            <p className="text-sm text-slate-500">
+              미분석 기사 <span className="font-semibold text-yellow-600">{stats.unanalyzed_count}개</span>에 대해 신뢰도 분석을 실행합니다.
+            </p>
+            <button
+              onClick={() => { setAnalyzeStatus(null); analyzeMutation.mutate() }}
+              disabled={analyzeMutation.isPending}
+              className="w-full bg-amber-500 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50"
+            >
+              {analyzeMutation.isPending ? '요청 중...' : `미분석 기사 ${stats.unanalyzed_count}개 신뢰도 분석`}
+            </button>
+            {analyzeStatus === 'started' && (
+              <p className="text-sm text-green-600">신뢰도 분석이 백그라운드에서 실행 중입니다. 완료되면 DB 현황이 자동 갱신됩니다.</p>
+            )}
+            {analyzeStatus === 'nothing' && (
+              <p className="text-sm text-slate-400">분석할 기사가 없습니다.</p>
+            )}
+            {analyzeStatus === 'error' && (
+              <p className="text-sm text-red-500">분석 요청에 실패했습니다. 서버 상태를 확인하세요.</p>
+            )}
+          </div>
+        )}
       </main>
     </div>
   )
