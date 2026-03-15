@@ -1,9 +1,6 @@
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-
-# Streamlit
-.streamlit/
 
 # DuckDB
 *.duckdb
@@ -13,12 +10,13 @@ __pycache__/
 .vscode/
 .idea/
 
+# Env
 .env
 venv/
 etvenv1/
 etvenv/
 
-# Unused directories
+# Ignored directories
 ET_DashBoard_Project/
 
 # Node
