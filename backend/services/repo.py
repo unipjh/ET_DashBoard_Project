@@ -1,7 +1,11 @@
+import os
 import duckdb
 import pandas as pd
+from dotenv import load_dotenv
 
-DB_PATH = "app_db.duckdb"
+load_dotenv()
+_MD_TOKEN = os.getenv("MOTHERDUCK_TOKEN", "")
+DB_PATH = f"md:et_db?motherduck_token={_MD_TOKEN}" if _MD_TOKEN else "app_db.duckdb"
 
 
 def init_db():
