@@ -1,0 +1,45 @@
+from fastapi import APIRouter
+from backend.schemas import SearchRequest, SearchResult
+from backend.services import repo
+from backend.services.config import get_gemini_api_key
+import google.generativeai as genai
+
+router = APIRouter(prefix="/api/search", tags=["search"])
+
+genai.configure(api_key=get_gemini_api_key())
+EMBEDDING_MODEL = "models/gemini-embedding-001"
+
+
+def _embed_query(text: str) -> list:
+    try:
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=text,
+            task_type="retrieval_query"
+        )
+        vec = result["embedding"]
+        if len(vec) > 768:
+            vec = vec[:768]
+        elif len(vec) < 768:
+            vec = vec + [0.0] * (768 - len(vec))
+        return vec
+    except Exception:
+        return [0.0] * 768
+
+
+@router.post("", response_model=list[SearchResult])
+def search_articles(req: SearchRequest):
+    vec = _embed_query(req.query)
+
+    # 하이브리드 검색 (시맨틱 + BM25 RRF)
+    df = repo.search_hybrid(
+        query=req.query,
+        query_vector=vec,
+        limit=req.limit,
+        min_semantic_score=0.6,  # 0.5 → 0.6 상향
+    )
+    df = df[df["score"] >= 0.8]
+    if df.empty:
+        return []
+
+    return df.to_dict(orient="records")
