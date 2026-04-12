@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom'
-import type { Article } from '../api/client'
 
 // 점수에 따라 HSL 색상의 Hue(색조) 값을 동적으로 계산하는 함수
 const getHue = (s: number) => {

@@ -51,7 +51,7 @@ export default function DetailPage() {
       }
       return postFeedback(variables.articleId, variables.feedback)
     },
-    onSuccess: (data, variables) => {
+    onSuccess: (_data, variables) => {
       // 피드백을 제출했을 때만 (취소가 아닐 때) 토스트 메시지를 띄웁니다.
       if (variables.feedback) {
         setToastMessage('피드백 주셔서 감사합니다!')
@@ -451,7 +451,7 @@ export default function DetailPage() {
                   const p = getRadarPoint(plotScore, i)
                   const labelP = getRadarPoint(11.5, i)
                   
-                  let anchor = "middle"
+                  let anchor: "inherit" | "middle" | "start" | "end" = "middle"
                   if (Math.cos(labelP.angle) > 0.1) anchor = "start"
                   if (Math.cos(labelP.angle) < -0.1) anchor = "end"
                   

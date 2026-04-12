@@ -20,6 +20,7 @@ export interface ArticleDetail extends Article {
   full_text: string
   trust_reason: string
   trust_per_criteria: string
+  keywords?: string
 }
 
 export interface SearchResult {
