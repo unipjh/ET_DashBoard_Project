@@ -213,7 +213,7 @@ export default function MainPage() {
                           썸네일 불러오는 중...
                         </div>
                         <img 
-                          src={`/api/articles/${article.article_id}/thumbnail`} 
+                          src={`${import.meta.env.VITE_API_URL || ''}/api/articles/${article.article_id}/thumbnail`}
                           alt="기사 썸네일" 
                           className="relative z-10 object-cover w-full h-full group-hover:scale-105 transition-transform duration-700 ease-out"
                           onError={(e) => {
