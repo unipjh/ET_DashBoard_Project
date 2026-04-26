@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,9 +14,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ET API", version="1.0.0", lifespan=lifespan)
 
+# ALLOWED_ORIGINS 환경변수로 허용 도메인 지정 (쉼표 구분)
+# 예: "https://your-app.vercel.app,http://localhost:5173"
+_raw = os.environ.get("ALLOWED_ORIGINS", "*")
+allowed_origins = [o.strip() for o in _raw.split(",")] if _raw != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
