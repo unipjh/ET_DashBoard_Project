@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { fetchArticles, searchArticles } from '../api/client'
+import type { Article, SearchResult } from '../api/client'
 import ArticleCard from '../components/ArticleCard'
 
 const CATEGORIES = ['전체', '정치', '경제', '사회', '생활/문화', '세계', 'IT/과학']
@@ -92,7 +93,7 @@ export default function MainPage() {
   const isLoading = isSearchMode ? isSearching : (isLoadingCategoryArticles || isLoadingFirstPageArticles);
 
   // 최종적으로 화면에 렌더링할 기사 목록 결정
-  let articlesToRender = [];
+  let articlesToRender: (Article | SearchResult)[] = [];
   let totalCountForDisplay = 0; // 검색 결과나 카테고리 필터링 시 총 개수를 표시하기 위함
 
   if (isSearchMode) {
@@ -303,7 +304,7 @@ export default function MainPage() {
               )}
 
               {/* 페이징 (전체 기사 및 검색/카테고리 공용) */}
-              {(!isSearchMode || searchResults.length > 0) && ( // 검색 모드가 아니거나, 검색 결과가 있을 때만 페이징 표시
+              {(!isSearchMode || (searchResults?.length ?? 0) > 0) && ( // 검색 모드가 아니거나, 검색 결과가 있을 때만 페이징 표시
                 <div className="flex justify-center gap-3 pt-6 border-t border-gray-100">
                   <button
                     onClick={() => updatePage(Math.max(1, page - 1))}

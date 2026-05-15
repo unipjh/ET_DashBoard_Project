@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { fetchStats } from '../api/client'
 import type { AdminStats } from '../api/client'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 export default function AdminPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -41,7 +43,7 @@ export default function AdminPage() {
   const { data: processStatus } = useQuery({
     queryKey: ['processStatus'],
     queryFn: async () => {
-        const res = await fetch('/api/admin/process-status');
+        const res = await fetch(`${API_BASE}/api/admin/process-status`);
         if (!res.ok) return null;
         return res.json();
     },
@@ -56,7 +58,7 @@ export default function AdminPage() {
     mutationFn: async (payload: { max: number, categories: string[] }) => {
       // client.ts 수정 없이 바로 동작할 수 있도록 직접 API를 호출하여 카테고리를 전달합니다.
       const perCat = Math.max(1, Math.ceil(payload.max / payload.categories.length));
-      const res = await fetch('/api/admin/crawl', {
+      const res = await fetch(`${API_BASE}/api/admin/crawl`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
