@@ -14,6 +14,12 @@ export interface Article {
   summary_text: string
   trust_score: number
   trust_verdict: string
+  category: string
+}
+
+export interface PaginatedArticlesResponse {
+  articles: Article[];
+  total_count: number;
 }
 
 export interface ArticleDetail extends Article {
@@ -52,8 +58,11 @@ export interface AdminStats {
   api_usage: ApiUsage
 }
 
-export const fetchArticles = (page = 1, size = 10) =>
-  api.get<Article[]>('/api/articles', { params: { page, size } }).then(r => r.data)
+export const fetchArticles = (page = 1, size = 10, category?: string) => {
+  const params: { page: number; size: number; category?: string } = { page, size };
+  if (category) { params.category = category; }
+  return api.get<PaginatedArticlesResponse>('/api/articles', { params }).then(r => r.data);
+}
 
 export const fetchArticle = (id: string) =>
   api.get<ArticleDetail>(`/api/articles/${id}`).then(r => r.data)

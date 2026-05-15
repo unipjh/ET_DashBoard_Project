@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { fetchArticles, searchArticles } from '../api/client'
 import ArticleCard from '../components/ArticleCard'
 
-const CATEGORIES = ['전체', 'IT/과학', '경제', '사회', '생활/문화', '세계', '정치', '연예', '스포츠']
-
+const CATEGORIES = ['전체', '정치', '경제', '사회', '생활/문화', '세계', 'IT/과학']
 // 점수에 따라 HSL 색상의 Hue(색조) 값을 동적으로 계산하는 함수
 const getHue = (s: number) => {
   if (s <= 30) return (s / 30) * 15; // 0~30점: 빨간색 영역 (Hue 0~15)
@@ -20,50 +19,67 @@ export default function MainPage() {
   const page = parseInt(searchParams.get('page') || '1', 10)
 
   const [query, setQuery] = useState(submittedQuery)
+  const location = useLocation()
   const navigate = useNavigate()
   const [isPageLoaded, setIsPageLoaded] = useState(false)
 
-  // 검색어 또는 카테고리(전체 아님)가 활성화되어 있는지 여부
-  const activeQuery = submittedQuery ? submittedQuery : (selectedCategory !== '전체' ? selectedCategory : '')
+  const isSearchMode = !!submittedQuery;
 
   // 뒤로가기 등으로 URL 파라미터가 변했을 때, 검색창 텍스트 동기화
   useEffect(() => {
     setQuery(submittedQuery)
   }, [submittedQuery])
 
-  const { data: articles = [], isLoading: isLatestLoading } = useQuery({
-    queryKey: ['articles', page],
-    queryFn: () => fetchArticles(page, 10),
-    enabled: activeQuery === '',
+  // 현재 페이지와 선택된 카테고리에 해당하는 기사들을 불러옵니다. (검색 모드가 아닐 때)
+  const { data: categoryFilteredData, isLoading: isLoadingCategoryArticles } = useQuery({
+    queryKey: ['articles', page, selectedCategory],
+    queryFn: () => fetchArticles(page, 10, selectedCategory === '전체' ? undefined : selectedCategory),
+    enabled: !isSearchMode, // 검색 모드가 아닐 때만 활성화
   })
+  const categoryFilteredArticles = categoryFilteredData?.articles || [];
+  const categoryTotalCount = categoryFilteredData?.total_count || 0;
 
-  // 추천 뉴스를 페이지 이동과 무관하게 고정하기 위해 1페이지(최신) 데이터를 별도로 가져옵니다 (캐싱됨)
-  const { data: firstPageArticles = [] } = useQuery({
-    queryKey: ['articles', 1],
-    queryFn: () => fetchArticles(1, 10),
-    enabled: activeQuery === '',
+  // '전체' 카테고리일 때 '오늘의 추천 뉴스'를 위해 1페이지 데이터를 별도로 가져옵니다 (캐싱됨)
+  const { data: firstPageDataForTopPicks, isLoading: isLoadingFirstPageArticles } = useQuery({
+    queryKey: ['articles', 1, selectedCategory],
+    queryFn: () => fetchArticles(1, 10, selectedCategory === '전체' ? undefined : selectedCategory),
+    enabled: !isSearchMode && selectedCategory === '전체', // 검색 모드가 아니고 '전체' 카테고리일 때만 활성화
   })
+  const firstPageArticlesForTopPicks = firstPageDataForTopPicks?.articles || [];
 
+  // 검색 결과 (검색 모드일 때)
   const { data: searchResults, isLoading: isSearching } = useQuery({
-    queryKey: ['search', activeQuery],
-    queryFn: () => searchArticles(activeQuery),
-    enabled: activeQuery.length > 0,
+    queryKey: ['search', submittedQuery],
+    queryFn: () => searchArticles(submittedQuery),
+    enabled: isSearchMode, // 검색 모드일 때만 활성화
   })
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    if (query.trim()) {
-      setSearchParams({ q: query.trim(), page: '1' })
+    const newParams = new URLSearchParams(searchParams);
+    if (query.trim()) { // 검색어가 있으면
+      newParams.set('q', query.trim());
+      newParams.delete('cat'); // 검색 시 카테고리 파라미터 제거
+    } else { // 검색어가 비어있으면
+      newParams.delete('q'); // 검색 파라미터 제거
+      // 검색어가 비어있고, 현재 URL에 cat 파라미터가 없으면 '전체'로 간주 (기본 동작)
+      // newParams.set('cat', '전체'); // 이 부분은 불필요, selectedCategory가 '전체'로 기본 설정됨
     }
+    newParams.set('page', '1');
+    setSearchParams(newParams);
   }
 
   const handleCategoryClick = (cat: string) => {
-    setQuery('')
+    setQuery('') // 카테고리 클릭 시 검색어 초기화
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('q'); // 카테고리 클릭 시 검색 파라미터 제거
     if (cat === '전체') {
-      setSearchParams({ page: '1' })
+      newParams.delete('cat'); // '전체' 카테고리 선택 시 cat 파라미터 제거
     } else {
-      setSearchParams({ cat, page: '1' })
+      newParams.set('cat', cat);
     }
+    newParams.set('page', '1');
+    setSearchParams(newParams);
   }
 
   const updatePage = (newPage: number) => {
@@ -72,8 +88,28 @@ export default function MainPage() {
     setSearchParams(newParams)
   }
 
-  const isLoading = activeQuery ? isSearching : isLatestLoading
-  const displayArticles = activeQuery ? (searchResults || []) : articles
+  // 전체 로딩 상태
+  const isLoading = isSearchMode ? isSearching : (isLoadingCategoryArticles || isLoadingFirstPageArticles);
+
+  // 최종적으로 화면에 렌더링할 기사 목록 결정
+  let articlesToRender = [];
+  let totalCountForDisplay = 0; // 검색 결과나 카테고리 필터링 시 총 개수를 표시하기 위함
+
+  if (isSearchMode) {
+    // 검색 모드일 때는 검색 결과를 프론트엔드에서 페이지네이션합니다.
+    articlesToRender = (searchResults || []).slice((page - 1) * 9, page * 9);
+    totalCountForDisplay = (searchResults || []).length;
+  } else {
+    // 일반 최신 기사 또는 카테고리 필터링 모드일 때
+    const topPicks = selectedCategory === '전체'
+      ? [...firstPageArticlesForTopPicks].sort((a, b) => (b.trust_score || 0) - (a.trust_score || 0)).slice(0, 1)
+      : [];
+
+    articlesToRender = selectedCategory === '전체'
+      ? categoryFilteredArticles.filter(a => !topPicks.find(t => t.article_id === a.article_id))
+      : categoryFilteredArticles; // 카테고리 필터링 시에는 백엔드에서 이미 페이지네이션된 결과를 받습니다.
+    totalCountForDisplay = categoryTotalCount; // 백엔드에서 받은 총 개수 사용
+  }
 
   // 화면 전환 시 부드럽게 나타나는 애니메이션 트리거
   useEffect(() => {
@@ -82,16 +118,26 @@ export default function MainPage() {
       const timer = setTimeout(() => setIsPageLoaded(true), 50)
       return () => clearTimeout(timer)
     }
-  }, [isLoading, activeQuery, page])
+  }, [isLoading, isSearchMode, page, selectedCategory])
 
   // ✨ 오늘의 추천 뉴스: 전체보기 상태일 때, 1페이지(최신) 기사 중 신뢰도 점수가 가장 높은 1개로 고정
-  const topPicks = activeQuery === ''
-    ? [...firstPageArticles].sort((a, b) => (b.trust_score || 0) - (a.trust_score || 0)).slice(0, 1)
+  const topPicks = !isSearchMode && selectedCategory === '전체'
+    ? [...firstPageArticlesForTopPicks].sort((a, b) => (b.trust_score || 0) - (a.trust_score || 0)).slice(0, 1)
     : []
 
-  const remainingArticles = activeQuery === ''
-    ? articles.filter(a => !topPicks.find(t => t.article_id === a.article_id)).slice(0, 9)
-    : displayArticles.slice((page - 1) * 9, page * 9)
+  // remainingArticles 변수는 이제 articlesToRender에 통합되었으므로 제거합니다.
+  // const remainingArticles = !isSearchMode && selectedCategory === '전체'
+  //   ? articlesToRender.filter(a => !topPicks.find(t => t.article_id === a.article_id)).slice(0, 9)
+  //   : displayArticles.slice((page - 1) * 9, page * 9)
+
+  // Pagination disabled logic
+  const hasNextPage = isSearchMode ? page * 9 < totalCountForDisplay : page * 10 < totalCountForDisplay;
+
+  // URL 변경 시 스크롤을 맨 위로 올림
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.search]);
+
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans antialiased text-gray-900">
@@ -119,7 +165,7 @@ export default function MainPage() {
         </button>
       </header>
 
-      <main className={`max-w-6xl mx-auto px-4 py-10 space-y-10 transition-all duration-700 ease-out transform ${isPageLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+      <main className={`max-w-6xl mx-auto px-4 pb-10 pt-6 space-y-10 transition-all duration-700 ease-out transform ${isPageLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
         
         {/* 검색 및 카테고리 필터 섹션 */}
         <section className="space-y-6">
@@ -164,7 +210,7 @@ export default function MainPage() {
         {isLoading ? (
           <div className="text-center py-20">
             <div className="flex justify-center items-center gap-2 mb-6">
-              <div className="w-3.5 h-3.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }}></div>
+              <div className="w-3.5 h-3.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }} />
               <div className="w-3.5 h-3.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '-0.15s' }}></div>
               <div className="w-3.5 h-3.5 bg-blue-600 rounded-full animate-bounce"></div>
             </div>
@@ -172,8 +218,8 @@ export default function MainPage() {
           </div>
         ) : (
           <div className="space-y-12">
-            {/* ✨ 추천 뉴스 (전체 보기일 때만 노출) */}
-            {!activeQuery && topPicks.length > 0 && (
+            {/* ✨ 추천 뉴스 (검색 모드가 아니고 '전체' 카테고리일 때만 노출) */}
+            {!isSearchMode && selectedCategory === '전체' && topPicks.length > 0 && (
               <section className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
                 <h2 className="text-[20px] font-extrabold text-gray-900 tracking-tight flex items-center gap-2.5 mb-6">
                   <span className="text-2xl">✨</span> AI가 분석한 오늘의 추천 뉴스
@@ -213,7 +259,7 @@ export default function MainPage() {
                           썸네일 불러오는 중...
                         </div>
                         <img 
-                          src={`${import.meta.env.VITE_API_URL || ''}/api/articles/${article.article_id}/thumbnail`}
+                          src={`/api/articles/${article.article_id}/thumbnail`} 
                           alt="기사 썸네일" 
                           className="relative z-10 object-cover w-full h-full group-hover:scale-105 transition-transform duration-700 ease-out"
                           onError={(e) => {
@@ -234,17 +280,17 @@ export default function MainPage() {
                   ? `"${submittedQuery}" 검색 결과` 
                   : selectedCategory !== '전체' 
                     ? `${selectedCategory} 관련 기사` 
-                    : '최신 기사'}
-                {(submittedQuery || selectedCategory !== '전체') && (
+                    : '최신 기사'} {/* '전체' 카테고리일 때 */}
+                {(isSearchMode || selectedCategory !== '전체') && (
                   <span className="text-[14px] font-bold text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full ml-2">
-                    {displayArticles.length}건
+                    {totalCountForDisplay}건
                   </span>
                 )}
               </h2>
               
-              {remainingArticles.length > 0 ? (
+              {articlesToRender.length > 0 ? ( 
                 <div className="flex flex-col gap-4 w-full">
-                  {remainingArticles.map((article: any) => (
+                  {articlesToRender.map((article: any) => (
                     <div key={article.article_id} className="h-full transition-transform duration-300 ease-out hover:-translate-y-1.5">
                       <ArticleCard article={article} />
                     </div>
@@ -257,7 +303,7 @@ export default function MainPage() {
               )}
 
               {/* 페이징 (전체 기사 및 검색/카테고리 공용) */}
-              {(activeQuery === '' || displayArticles.length > 0) && (
+              {(!isSearchMode || searchResults.length > 0) && ( // 검색 모드가 아니거나, 검색 결과가 있을 때만 페이징 표시
                 <div className="flex justify-center gap-3 pt-6 border-t border-gray-100">
                   <button
                     onClick={() => updatePage(Math.max(1, page - 1))}
@@ -268,8 +314,8 @@ export default function MainPage() {
                   </button>
                   <span className="text-[15px] text-gray-500 flex items-center px-2 font-bold">{page} 페이지</span>
                   <button
-                    onClick={() => updatePage(page + 1)}
-                    disabled={activeQuery === '' ? articles.length < 10 : page * 9 >= displayArticles.length}
+                    onClick={() => updatePage(page + 1)} // 다음 페이지로 이동
+                    disabled={!hasNextPage} // Use hasNextPage
                     className="text-[15px] font-bold px-5 py-2 border border-gray-200 rounded-lg disabled:opacity-40 disabled:pointer-events-none hover:bg-gray-50 text-gray-700 active:bg-gray-900 active:text-white active:border-gray-900 active:scale-95 transition-all duration-200"
                   >
                     다음
