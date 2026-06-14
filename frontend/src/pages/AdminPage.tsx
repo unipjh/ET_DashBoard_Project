@@ -215,7 +215,7 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stats?.category_stats?.map(cat => {
+                  {stats?.category_stats?.filter(cat => !['연예', '스포츠'].includes(cat.category)).map(cat => {
                     const analyzedRate = cat.total > 0 ? ((cat.total - cat.unanalyzed) / cat.total) * 100 : 0
                     return (
                       <tr key={cat.category} className="border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50 transition-colors">
