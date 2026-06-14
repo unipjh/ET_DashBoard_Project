@@ -575,7 +575,7 @@ export default function MainPage() {
                       <div className="w-full md:w-1/3 lg:w-[35%] h-52 md:h-auto relative overflow-hidden order-1 md:order-2 border-b md:border-b-0 md:border-l border-blue-100/50 bg-gray-100">
                         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-400 text-[12px] font-semibold">썸네일 불러오는 중...</div>
                         <img
-                          src={`/api/articles/${article.article_id}/thumbnail`}
+                          src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/articles/${article.article_id}/thumbnail`}
                           alt="기사 썸네일"
                           className="relative z-10 object-cover w-full h-full group-hover:scale-105 transition-transform duration-700 ease-out"
                           onError={(e) => { e.currentTarget.src = `https://picsum.photos/seed/${article.article_id}/800/600` }}
