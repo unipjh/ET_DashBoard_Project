@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# DuckDB
+*.duckdb
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Env
+.env
+venv/
+etvenv1/
+etvenv/
+
+# Ignored directories
+ET_DashBoard_Project/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Backend pycache
+backend/__pycache__/
+backend/**/__pycache__/
+
+export_*.csv
+export_*.npy
+
+# Large data files
+data/clickbait_*.csv
+
+# Vite cache (빌드 아티팩트)
+frontend/.vite/
+
+# Claude Code / MCP
+.mcp.json
+.claude/worktrees/
+.claude/settings.local.json

@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #fafafa;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #1e3a8a;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #fafafa; }
+::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2563eb; }
+
+/* 스플래시 로고 등장 */
+@keyframes splash-in {
+  0%   { opacity: 0; transform: scale(0.75) translateY(8px); }
+  60%  { opacity: 1; transform: scale(1.04) translateY(0px); }
+  100% { opacity: 1; transform: scale(1) translateY(0px); }
+}
+.splash-logo {
+  animation: splash-in 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 마스코트 떠오르기 등장 */
+@keyframes mascot-appear {
+  0%   { opacity: 0; transform: scale(0.8) translateY(10px); }
+  60%  { opacity: 1; transform: scale(1.04) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+/* 마스코트 바운스 */
+@keyframes mascot-bounce {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-10px); }
+}
+/* 마스코트 좌우 흔들 */
+@keyframes mascot-sway {
+  0%, 100% { transform: rotate(-2deg); }
+  50%      { transform: rotate(2deg); }
+}
+
+.mascot-img {
+  animation:
+    mascot-appear 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+    mascot-bounce 1.8s 0.7s ease-in-out infinite;
+}
+.mascot-sway {
+  animation: mascot-sway 2.4s ease-in-out infinite;
+}
+
+/* (레거시 SVG용, 제거 안 함) */
+.mascot-body { animation: mascot-bounce 1.5s ease-in-out infinite; }
+.mascot-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mascot-glow { }
