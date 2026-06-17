@@ -93,6 +93,15 @@ const CRITERIA_LABELS: Record<string, string> = {
   clickbait_risk: '어뷰징 위험도',
 }
 
+
+const CRITERIA_TOOLTIPS: Record<string, string> = {
+  source_credibility: '기사를 발행한 매체가 공식적으로 검증된 언론사인지 판별합니다. 주요 방송사 및 종합 일간지 등 공신력 있는 매체일수록 높은 점수가 부여되며, 개인 SNS나 익명 커뮤니티 글인 경우 낮은 점수가 부여됩니다.',
+  evidence_support: '기사의 주장이 객관적인 데이터로 탄탄하게 뒷받침되고 있는지 평가합니다. 본문 내에 구체적인 수치나 통계 자료, 실명이 공개된 전문가의 인터뷰, 또는 공식 기관의 발표 내용이 명확하게 포함되어 있을수록 높은 점수를 받습니다.',
+  style_neutrality: '기사가 사실 전달이라는 본연의 목적에 충실한지 AI가 언어적 패턴을 분석합니다. 독자의 감정을 자극하는 과장된 형용사나 편향적인 표현이 없는지, 그리고 기자의 개인적인 의견과 객관적 사실이 명확히 구분되어 있는지를 측정합니다.',
+  logical_consistency: '기사의 구조적 완성도와 문맥의 흐름을 평가합니다. 기사 초반의 서론과 후반의 결론이 일치하는지, 본문 내에 서로 모순되는 문장이 없는지, 제목에서 제시한 주장이 본문에서 충실하게 설명되고 있는지 다각도로 분석합니다.',
+  clickbait_risk: '조회수를 끌어올리기 위한 \'낚시성(Clickbait)\' 기사인지 판별하는 지표입니다. 제목이 본문 내용을 지나치게 과장하거나 왜곡하지는 않았는지, 자극적인 표현으로 독자의 클릭을 유도하지 않는지 검사합니다. (0점에 가까울수록 안전하고 우수한 기사입니다.)',
+}
+
 export default function DetailPage() {
   const params = useParams<{ id?: string; article_id?: string; articleId?: string }>()
   const id = params.id || params.article_id || params.articleId
@@ -322,7 +331,7 @@ export default function DetailPage() {
               const urls: Record<string, string> = {
                 KOSPI:  'https://finance.naver.com/sise/sise_index.naver?code=KOSPI',
                 KOSDAQ: 'https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ',
-                DOW:    'https://finance.naver.com/world/sise.naver?symbol=DJI',
+                DOW:    'https://finance.naver.com/world/sise.naver?symbol=DJI@DJI',
               }
               return (
                 <div key={name} className="flex items-center gap-3">
@@ -603,6 +612,17 @@ export default function DetailPage() {
                       <span className="font-extrabold text-gray-800 text-[15px] tracking-tight flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                         {label}
+
+                        <div className="relative flex items-center group cursor-help ml-0.5">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-gray-800 text-white text-[12.5px] font-medium rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 break-keep leading-relaxed text-left pointer-events-none">
+                            {CRITERIA_TOOLTIPS[key]}
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                          </div>
+                        </div>
+
                       </span>
                       <div className="flex items-center gap-2">
                         {isClickbait && <span className="text-[11px] text-gray-500 font-bold bg-gray-200/70 px-2 py-0.5 rounded tracking-tight">낮을수록 좋음</span>}
