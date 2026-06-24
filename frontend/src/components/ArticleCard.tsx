@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import type { Article, SearchResult } from '../api/client'
 
 const getHue = (s: number) => {
   if (s <= 30) return (s / 30) * 15
@@ -6,14 +7,18 @@ const getHue = (s: number) => {
   return 50 + ((s - 60) / 40) * 90
 }
 
-export default function ArticleCard({ article, isRelated = false }: { article: any; isRelated?: boolean }) {
+export default function ArticleCard({ article, isRelated = false }: { article: Article | SearchResult; isRelated?: boolean }) {
   const navigate = useNavigate()
+  const trustScore = 'trust_score' in article ? article.trust_score : 0
+  const summary = 'summary_text' in article ? article.summary_text : ''
 
   let keywordList: string[] = []
   try {
-    const parsed = JSON.parse((article as any).keywords || '[]')
-    keywordList = (Array.isArray(parsed) ? parsed : []).map((kw: string) => kw.split('>').pop()?.trim() || kw)
-  } catch (e) {
+    const parsed: unknown = JSON.parse('keywords' in article ? article.keywords || '[]' : '[]')
+    keywordList = (Array.isArray(parsed) ? parsed : [])
+      .filter((kw): kw is string => typeof kw === 'string')
+      .map((kw) => kw.split('>').pop()?.trim() || kw)
+  } catch {
     keywordList = []
   }
 
@@ -38,22 +43,22 @@ export default function ArticleCard({ article, isRelated = false }: { article: a
         <h3 className="text-[16px] font-bold text-gray-900 tracking-tight leading-snug line-clamp-2 flex-1 break-keep">
           {article.title}
         </h3>
-        {!isRelated && article.trust_score > 0 && (
+        {!isRelated && trustScore > 0 && (
           <span
             className="text-xs font-extrabold px-2 py-1 rounded-md whitespace-nowrap border shadow-sm shrink-0"
             style={{
-              color: `hsl(${getHue(article.trust_score || 0)}, 85%, 35%)`,
-              backgroundColor: `hsl(${getHue(article.trust_score || 0)}, 100%, 94%)`,
-              borderColor: `hsl(${getHue(article.trust_score || 0)}, 85%, 85%)`
+              color: `hsl(${getHue(trustScore)}, 85%, 35%)`,
+              backgroundColor: `hsl(${getHue(trustScore)}, 100%, 94%)`,
+              borderColor: `hsl(${getHue(trustScore)}, 85%, 85%)`
             }}
           >
-            신뢰도 {article.trust_score}점
+            신뢰도 {trustScore}점
           </span>
         )}
       </div>
 
       <p className="mt-2 text-[13.5px] font-medium text-gray-500 line-clamp-1 leading-relaxed tracking-tight">
-        {article.summary_text || article.chunk_text || '요약 데이터가 없습니다.'}
+        {summary || article.chunk_text || '요약 데이터가 없습니다.'}
       </p>
 
       {!isRelated && (

@@ -6,14 +6,31 @@ import DetailPage from './pages/DetailPage'
 import AdminPage from './pages/AdminPage'
 import FeedbackPage from './pages/FeedbackPage'
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60 * 1000,
+      gcTime: 5 * 60 * 1000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+})
 
 function SplashScreen({ onDone }: { onDone: () => void }) {
   const [fadeOut, setFadeOut] = useState(false)
 
   useEffect(() => {
-    const fadeTimer = setTimeout(() => setFadeOut(true), 1800)
-    const doneTimer = setTimeout(() => onDone(), 2300)
+    const alreadySeen = sessionStorage.getItem('et_splash_seen') === '1'
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const fadeDelay = alreadySeen || reduceMotion ? 120 : 520
+    const doneDelay = alreadySeen || reduceMotion ? 180 : 760
+
+    const fadeTimer = setTimeout(() => setFadeOut(true), fadeDelay)
+    const doneTimer = setTimeout(() => {
+      sessionStorage.setItem('et_splash_seen', '1')
+      onDone()
+    }, doneDelay)
     return () => {
       clearTimeout(fadeTimer)
       clearTimeout(doneTimer)

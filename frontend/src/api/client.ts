@@ -1,9 +1,15 @@
 import axios from 'axios'
 
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 10000,
 })
+
+export const getApiAssetUrl = (path: string) =>
+  `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 
 export interface Article {
   article_id: string
@@ -12,6 +18,8 @@ export interface Article {
   url: string
   published_at: string
   summary_text: string
+  chunk_text?: string
+  keywords?: string
   trust_score: number
   trust_verdict: string
   category: string
@@ -42,6 +50,7 @@ export interface CategoryStat {
   category: string
   total: number
   unanalyzed: number
+  today_articles?: number
 }
 
 export interface ApiUsage {
@@ -72,6 +81,11 @@ export const searchArticles = (query: string, limit = 10) =>
 
 export const fetchRelatedArticles = (id: string, limit = 5) =>
   api.get<SearchResult[]>(`/api/articles/${id}/related`, { params: { limit } }).then(r => r.data)
+
+export const fetchRecommendations = (sessionId?: string | null, userId?: string | null, limit = 10) =>
+  api.get<Article[]>('/api/recommendations', {
+    params: { session_id: sessionId || undefined, user_id: userId || undefined, limit },
+  }).then(r => r.data)
 
 export const fetchStats = () =>
   api.get<AdminStats>('/api/admin/stats').then(r => r.data)
@@ -113,5 +127,19 @@ export const signup = (email: string, password: string) =>
 
 export const login = (email: string, password: string) =>
   api.post<{ ok: boolean; user_id: string }>('/api/auth/login', { email, password }).then(r => r.data)
+
+export const adminHeaders = (password: string) => ({
+  'X-Admin-Password': password,
+})
+
+export const validateAdmin = (password: string) =>
+  api.post<{ status: string }>('/api/admin/session', null, {
+    headers: adminHeaders(password),
+  }).then(r => r.data)
+
+export const fetchAdminStats = (password: string) =>
+  api.get<AdminStats>('/api/admin/stats', {
+    headers: adminHeaders(password),
+  }).then(r => r.data)
 
 export default api

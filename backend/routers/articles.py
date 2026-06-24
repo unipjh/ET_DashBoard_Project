@@ -3,24 +3,28 @@ from fastapi.responses import RedirectResponse
 from backend.services import repo
 from backend.schemas import ArticleOut, ArticleDetail, SearchResult, PaginatedArticlesResponse
 from backend.services.config import get_gemini_api_key
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import requests
 from bs4 import BeautifulSoup
+import time
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
-genai.configure(api_key=get_gemini_api_key())
+_client = genai.Client(api_key=get_gemini_api_key())
 EMBEDDING_MODEL = "models/gemini-embedding-001"
+THUMBNAIL_CACHE_TTL = 60 * 60
+_thumbnail_cache: dict[str, tuple[float, bytes, str]] = {}
 
 
 def _embed(text: str) -> list:
     try:
-        result = genai.embed_content(
+        result = _client.models.embed_content(
             model=EMBEDDING_MODEL,
-            content=text,
-            task_type="retrieval_query",
+            contents=text,
+            config=types.EmbedContentConfig(task_type="retrieval_query"),
         )
-        vec = result["embedding"]
+        vec = list(result.embeddings[0].values)
         if len(vec) > 768:
             vec = vec[:768]
         elif len(vec) < 768:
@@ -36,18 +40,30 @@ def get_articles(
     size: int = Query(10, ge=1, le=100),
     category: str | None = Query(None),
 ):
-    if category:
-        articles = repo.get_articles_paginated_by_category(page=page, size=size, category=category)
-    else:
-        articles = repo.get_articles_paginated(page=page, size=size)
-    total_count = repo.get_articles_total_count(category=category)
-    return {"articles": articles, "total_count": total_count}
+    try:
+        if category:
+            articles = repo.get_articles_paginated_by_category(page=page, size=size, category=category)
+        else:
+            articles = repo.get_articles_paginated(page=page, size=size)
+        total_count = repo.get_articles_total_count(category=category)
+        return {"articles": articles, "total_count": total_count}
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Article database is unavailable: {type(e).__name__}",
+        ) from e
 
 
 @router.get("/{article_id}")
 def get_article(article_id: str):
     # DB에서 특정 ID의 기사만 직접 조회합니다.
-    article = repo.get_article_by_id(article_id)
+    try:
+        article = repo.get_article_by_id(article_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Article database is unavailable: {type(e).__name__}",
+        ) from e
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     return article
@@ -74,9 +90,22 @@ def get_related(article_id: str, limit: int = Query(5, ge=1, le=20)):
 
 @router.get("/{article_id}/thumbnail")
 def get_article_thumbnail(article_id: str):
+    cached = _thumbnail_cache.get(article_id)
+    now = time.time()
+    if cached and now - cached[0] < THUMBNAIL_CACHE_TTL:
+        _, content, media_type = cached
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
     article = repo.get_article_by_id(article_id)
     if not article or not article.get("url"):
-        return RedirectResponse(f"https://picsum.photos/seed/{article_id}/800/600")
+        return RedirectResponse(
+            f"https://picsum.photos/seed/{article_id}/800/600",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
     
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -87,8 +116,17 @@ def get_article_thumbnail(article_id: str):
         
         if img_url:
             img_res = requests.get(img_url, headers=headers, timeout=5)
-            return Response(content=img_res.content, media_type=img_res.headers.get("Content-Type", "image/jpeg"))
+            media_type = img_res.headers.get("Content-Type", "image/jpeg")
+            _thumbnail_cache[article_id] = (now, img_res.content, media_type)
+            return Response(
+                content=img_res.content,
+                media_type=media_type,
+                headers={"Cache-Control": "public, max-age=3600"},
+            )
     except Exception:
         pass
     
-    return RedirectResponse(f"https://picsum.photos/seed/{article_id}/800/600")
+    return RedirectResponse(
+        f"https://picsum.photos/seed/{article_id}/800/600",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

@@ -6,6 +6,7 @@ class CategoryStat(BaseModel):
     category: str
     total: int
     unanalyzed: int
+    today_articles: int = 0
 
 
 class ApiUsage(BaseModel):

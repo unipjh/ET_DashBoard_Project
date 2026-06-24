@@ -2,22 +2,23 @@ from fastapi import APIRouter
 from backend.schemas import SearchRequest, SearchResult
 from backend.services import repo
 from backend.services.config import get_gemini_api_key
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
-genai.configure(api_key=get_gemini_api_key())
+_client = genai.Client(api_key=get_gemini_api_key())
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 
 
 def _embed_query(text: str) -> list:
     try:
-        result = genai.embed_content(
+        result = _client.models.embed_content(
             model=EMBEDDING_MODEL,
-            content=text,
-            task_type="retrieval_query"
+            contents=text,
+            config=types.EmbedContentConfig(task_type="retrieval_query"),
         )
-        vec = result["embedding"]
+        vec = list(result.embeddings[0].values)
         if len(vec) > 768:
             vec = vec[:768]
         elif len(vec) < 768:

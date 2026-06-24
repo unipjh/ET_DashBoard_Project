@@ -7,14 +7,15 @@ import random
 import re
 import time
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 try:
     from backend.services.config import get_gemini_api_key
 except ModuleNotFoundError:
     from config import get_gemini_api_key
 
-genai.configure(api_key=get_gemini_api_key())
+_client = genai.Client(api_key=get_gemini_api_key())
 logger = logging.getLogger(__name__)
 
 # ============================================================
@@ -344,17 +345,16 @@ def score_trust(text: str, source: str | None = None, title: str | None = None) 
 
     prompt = _PROMPT_TEMPLATE.format(source=safe_source, title=safe_title, text=safe_text)
 
-    model = genai.GenerativeModel(
-        TRUST_MODEL,
-        generation_config={"response_mime_type": "application/json"},
-    )
-
     raw_json = None
 
     # Phase 1-4: MAX_RETRIES 상한 + logging
     for attempt in range(MAX_RETRIES):
         try:
-            response = model.generate_content(prompt)
+            response = _client.models.generate_content(
+                model=TRUST_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json"),
+            )
             raw_json = _safe_json_parse(response.text)
             if raw_json is None:
                 raise ValueError("JSON 파싱 전부 실패")

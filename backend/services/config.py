@@ -13,3 +13,8 @@ def get_database_url() -> str:
     if not url:
         raise RuntimeError("DATABASE_URL 환경변수가 설정되지 않았습니다.")
     return url
+
+
+def get_admin_password() -> str:
+    load_dotenv()
+    return os.getenv("ADMIN_PASSWORD") or ""

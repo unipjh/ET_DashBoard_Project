@@ -1,21 +1,47 @@
 import os
 import re
 import uuid
-import psycopg2
-import psycopg2.extras
+try:
+    import psycopg2
+    import psycopg2.extras
+except ModuleNotFoundError:
+    psycopg2 = None
 import pandas as pd
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-from rank_bm25 import BM25Okapi
-from passlib.context import CryptContext
+try:
+    from passlib.context import CryptContext
+except ModuleNotFoundError:
+    CryptContext = None
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+try:
+    from rank_bm25 import BM25Okapi
+except ModuleNotFoundError:
+    BM25Okapi = None
+
+if CryptContext is not None:
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+else:
+    import hashlib
+
+    class _FallbackPasswordContext:
+        def hash(self, password: str) -> str:
+            return "sha256$" + hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+        def verify(self, password: str, hashed: str) -> bool:
+            return self.hash(password) == hashed
+
+    pwd_context = _FallbackPasswordContext()
 
 load_dotenv()
 
 
 def _get_con():
+    if psycopg2 is None:
+        raise RuntimeError(
+            "psycopg2 is not installed. Install backend requirements, including psycopg2-binary."
+        )
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
@@ -29,6 +55,54 @@ def _fetchdf(cur) -> pd.DataFrame:
         return pd.DataFrame()
     cols = [d[0] for d in cur.description]
     return pd.DataFrame(rows, columns=cols)
+
+
+def _parse_vector(value, dim: int = 768) -> list[float] | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        vec = value
+    elif isinstance(value, tuple):
+        vec = list(value)
+    else:
+        text = str(value).strip()
+        if not text or text == "[]":
+            return None
+        try:
+            vec = json.loads(text)
+        except Exception:
+            try:
+                vec = [float(part.strip()) for part in text.strip("[]").split(",") if part.strip()]
+            except Exception:
+                return None
+    try:
+        vec = [float(x) for x in vec]
+    except Exception:
+        return None
+    if len(vec) > dim:
+        return vec[:dim]
+    if len(vec) < dim:
+        return vec + [0.0] * (dim - len(vec))
+    return vec
+
+
+def check_db() -> tuple[bool, str | None]:
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        cur.close()
+        con.close()
+        return True, None
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+ARTICLE_LIST_COLUMNS = (
+    "article_id, title, source, url, published_at, summary_text, keywords, "
+    "trust_score, trust_verdict, category"
+)
 
 
 # ============================================================
@@ -62,9 +136,11 @@ def init_db():
             trust_reason       TEXT,
             trust_per_criteria TEXT,
             status             TEXT,
-            category           TEXT
+            category           TEXT,
+            learned_embedding  vector(768)
         )
     """)
+    cur.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS learned_embedding vector(768)")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS article_chunks (
@@ -226,6 +302,10 @@ def search_similar_chunks(
 # BM25 검색
 # ============================================================
 def search_bm25(query: str, limit: int = 10) -> pd.DataFrame:
+    if BM25Okapi is None:
+        print("[SEARCH WARN] rank_bm25 is not installed; BM25 search is disabled.")
+        return pd.DataFrame()
+
     con = _get_con()
     cur = con.cursor()
     try:
@@ -375,6 +455,23 @@ def load_articles() -> pd.DataFrame:
     return df
 
 
+def load_articles_for_stats() -> pd.DataFrame:
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        cur.execute(
+            "SELECT article_id, source, published_at, trust_score, category "
+            "FROM articles ORDER BY published_at DESC"
+        )
+        df = _fetchdf(cur)
+    except Exception:
+        df = pd.DataFrame()
+    finally:
+        cur.close()
+        con.close()
+    return df
+
+
 def get_articles_total_count(category: str | None = None) -> int:
     con = _get_con()
     cur = con.cursor()
@@ -398,7 +495,7 @@ def get_articles_paginated(page: int, size: int) -> list:
     cur = con.cursor()
     try:
         cur.execute(
-            "SELECT * FROM articles ORDER BY published_at DESC LIMIT %s OFFSET %s",
+            f"SELECT {ARTICLE_LIST_COLUMNS} FROM articles ORDER BY published_at DESC LIMIT %s OFFSET %s",
             [size, offset],
         )
         df = _fetchdf(cur)
@@ -417,7 +514,7 @@ def get_articles_paginated_by_category(page: int, size: int, category: str) -> l
     cur = con.cursor()
     try:
         cur.execute(
-            "SELECT * FROM articles WHERE category = %s ORDER BY published_at DESC LIMIT %s OFFSET %s",
+            f"SELECT {ARTICLE_LIST_COLUMNS} FROM articles WHERE category = %s ORDER BY published_at DESC LIMIT %s OFFSET %s",
             [category, size, offset],
         )
         df = _fetchdf(cur)
@@ -612,14 +709,254 @@ def authenticate_user(email: str, password: str) -> dict:
         con.close()
 
 
+def insert_impression_log(event: dict):
+    event_data = event.get("event_data") or {}
+    raw_articles = event_data.get("articles") or []
+    if not raw_articles and event_data.get("article_ids"):
+        raw_articles = [
+            {"article_id": article_id, "position": idx}
+            for idx, article_id in enumerate(event_data.get("article_ids") or [])
+        ]
+
+    articles = []
+    for idx, item in enumerate(raw_articles):
+        if isinstance(item, dict):
+            article_id = item.get("article_id")
+            position = item.get("position", idx)
+        else:
+            article_id = item
+            position = idx
+        if article_id:
+            articles.append({"article_id": str(article_id), "position": int(position or 0)})
+
+    if not articles:
+        return
+
+    normalized = dict(event)
+    normalized["event_type"] = "impression"
+    normalized["article_id"] = None
+    normalized["event_data"] = {
+        **event_data,
+        "articles": articles,
+        "article_ids": [item["article_id"] for item in articles],
+    }
+    insert_log(normalized)
+
+
+def update_article_learned_embedding(article_id: str, vector: list[float] | None):
+    if not article_id or vector is None:
+        return
+    con = _get_con()
+    cur = con.cursor()
+    cur.execute(
+        "UPDATE articles SET learned_embedding = %s::vector WHERE article_id = %s",
+        [_vec_str(vector), article_id],
+    )
+    con.commit()
+    cur.close()
+    con.close()
+
+
+def get_recent_user_history(user_id: str | None = None, session_id: str | None = None, limit: int = 20) -> list[dict]:
+    if not user_id and not session_id:
+        return []
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        cur.execute(
+            f"""
+            WITH positive_events AS (
+                SELECT article_id, created_at
+                FROM event_logs
+                WHERE article_id IS NOT NULL
+                  AND event_type IN ('view_article_detail', 'view_detail', 'click_article', 'click_related', 'click_feedback')
+                  AND (
+                    (%s IS NOT NULL AND user_id = %s)
+                    OR (%s IS NOT NULL AND session_id = %s)
+                  )
+                UNION ALL
+                SELECT article_id, created_at
+                FROM feedback_logs
+                WHERE feedback_type = 'like'
+                  AND (%s IS NULL OR user_id = %s)
+            )
+            SELECT a.*
+            FROM positive_events e
+            JOIN articles a ON a.article_id = e.article_id
+            ORDER BY e.created_at DESC
+            LIMIT %s
+            """,
+            [user_id, user_id, session_id, session_id, user_id, user_id, limit],
+        )
+        df = _fetchdf(cur)
+        return df.fillna("").to_dict(orient="records") if not df.empty else []
+    except Exception as e:
+        print(f"[DB ERROR] get_recent_user_history: {type(e).__name__}: {e}")
+        return []
+    finally:
+        cur.close()
+        con.close()
+
+
+def get_latest_articles_by_categories(
+    categories: list[str],
+    limit: int = 10,
+    exclude_article_ids: list[str] | None = None,
+) -> list[dict]:
+    if not categories:
+        return []
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        exclude_article_ids = exclude_article_ids or []
+        cur.execute(
+            f"""
+            SELECT {ARTICLE_LIST_COLUMNS}
+            FROM articles
+            WHERE category = ANY(%s)
+              AND NOT (article_id = ANY(%s))
+            ORDER BY published_at DESC
+            LIMIT %s
+            """,
+            [categories, exclude_article_ids, limit],
+        )
+        df = _fetchdf(cur)
+        return df.fillna("").to_dict(orient="records") if not df.empty else []
+    except Exception as e:
+        print(f"[DB ERROR] get_latest_articles_by_categories: {type(e).__name__}: {e}")
+        return []
+    finally:
+        cur.close()
+        con.close()
+
+
+def get_latest_articles(limit: int = 10, exclude_article_ids: list[str] | None = None) -> list[dict]:
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        exclude_article_ids = exclude_article_ids or []
+        cur.execute(
+            f"""
+            SELECT {ARTICLE_LIST_COLUMNS}
+            FROM articles
+            WHERE NOT (article_id = ANY(%s))
+            ORDER BY published_at DESC
+            LIMIT %s
+            """,
+            [exclude_article_ids, limit],
+        )
+        df = _fetchdf(cur)
+        return df.fillna("").to_dict(orient="records") if not df.empty else []
+    except Exception as e:
+        print(f"[DB ERROR] get_latest_articles: {type(e).__name__}: {e}")
+        return []
+    finally:
+        cur.close()
+        con.close()
+
+
+def search_articles_by_learned_embedding(
+    query_vector: list[float],
+    limit: int = 10,
+    exclude_article_ids: list[str] | None = None,
+) -> list[dict]:
+    if not query_vector:
+        return []
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        exclude_article_ids = exclude_article_ids or []
+        vs = _vec_str(query_vector)
+        cur.execute(
+            f"""
+            SELECT {ARTICLE_LIST_COLUMNS},
+                   1 - (learned_embedding <=> %s::vector) AS score
+            FROM articles
+            WHERE learned_embedding IS NOT NULL
+              AND NOT (article_id = ANY(%s))
+            ORDER BY learned_embedding <=> %s::vector
+            LIMIT %s
+            """,
+            [vs, exclude_article_ids, vs, limit],
+        )
+        df = _fetchdf(cur)
+        return df.fillna("").to_dict(orient="records") if not df.empty else []
+    except Exception as e:
+        print(f"[DB ERROR] search_articles_by_learned_embedding: {type(e).__name__}: {e}")
+        return []
+    finally:
+        cur.close()
+        con.close()
+
+
+def find_impression_negatives(user_id: str | None = None, session_id: str | None = None, limit: int = 20) -> list[dict]:
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        cur.execute(
+            """
+            WITH impression_items AS (
+                SELECT item->>'article_id' AS article_id, event_logs.created_at
+                FROM event_logs,
+                     jsonb_array_elements((event_logs.event_data::jsonb)->'articles') AS item
+                WHERE event_type = 'impression'
+                  AND (%s IS NULL OR event_logs.user_id = %s)
+                  AND (%s IS NULL OR event_logs.session_id = %s)
+            ),
+            clicked AS (
+                SELECT DISTINCT article_id
+                FROM event_logs
+                WHERE article_id IS NOT NULL
+                  AND event_type IN ('view_article_detail', 'view_detail', 'click_article', 'click_related')
+                  AND (%s IS NULL OR user_id = %s)
+                  AND (%s IS NULL OR session_id = %s)
+            )
+            SELECT i.article_id, i.created_at
+            FROM impression_items i
+            LEFT JOIN clicked c ON c.article_id = i.article_id
+            WHERE i.article_id IS NOT NULL AND c.article_id IS NULL
+            ORDER BY i.created_at DESC
+            LIMIT %s
+            """,
+            [user_id, user_id, session_id, session_id, user_id, user_id, session_id, session_id, limit],
+        )
+        df = _fetchdf(cur)
+        return df.fillna("").to_dict(orient="records") if not df.empty else []
+    except Exception as e:
+        print(f"[DB ERROR] find_impression_negatives: {type(e).__name__}: {e}")
+        return []
+    finally:
+        cur.close()
+        con.close()
+
+
+SENSITIVE_EVENT_KEYS = ("password", "token", "secret", "api_key", "authorization")
+
+
+def _redact_event_data(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            if any(sensitive in str(key).lower() for sensitive in SENSITIVE_EVENT_KEYS):
+                redacted[key] = "[REDACTED]"
+            else:
+                redacted[key] = _redact_event_data(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_event_data(item) for item in value]
+    if isinstance(value, str) and len(value) > 500:
+        return value[:500] + "...[TRUNCATED]"
+    return value
+
+
 def insert_log(event: dict):
     try:
         con = _get_con()
         cur = con.cursor()
         log_id = f"log_{uuid.uuid4().hex}"
         created_at = datetime.now().isoformat()
-        event_data_str = json.dumps(event.get('event_data', {}), ensure_ascii=False)
-        
+        event_data_str = json.dumps(_redact_event_data(event.get('event_data', {})), ensure_ascii=False)
+
         # PostgreSQL 문법인 %s 를 사용합니다.
         raw_user_id = event.get('user_id') or None
         if raw_user_id:
@@ -636,3 +973,128 @@ def insert_log(event: dict):
         con.close()
     except Exception as e:
         print(f"❌ [로그 DB 저장 실패] {e}")
+
+
+# ============================================================
+# 배경 작업 이력 (background_jobs 테이블)
+# ============================================================
+
+def insert_background_job(job_id: str, job_type: str):
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        cur.execute(
+            "INSERT INTO background_jobs (job_id, job_type) VALUES (%s, %s) ON CONFLICT (job_id) DO NOTHING",
+            [job_id, job_type],
+        )
+        con.commit()
+        cur.close()
+        con.close()
+    except Exception as e:
+        print(f"[background_jobs] insert failed: {e}")
+
+
+def update_background_job_step(job_id: str, step: str, message: str):
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        safe_msg = (message or "")[:500]
+        cur.execute(
+            "UPDATE background_jobs SET current_step = %s, last_message = %s WHERE job_id = %s",
+            [step, safe_msg, job_id],
+        )
+        con.commit()
+        cur.close()
+        con.close()
+    except Exception:
+        pass
+
+
+def finish_background_job(job_id: str, articles_processed: int = 0):
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE background_jobs SET status = 'done', finished_at = now(), articles_processed = %s WHERE job_id = %s",
+            [articles_processed, job_id],
+        )
+        con.commit()
+        cur.close()
+        con.close()
+    except Exception as e:
+        print(f"[background_jobs] finish failed: {e}")
+
+
+def fail_background_job(job_id: str, error_text: str):
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE background_jobs SET status = 'failed', finished_at = now(), error_text = %s WHERE job_id = %s",
+            [str(error_text)[:2000], job_id],
+        )
+        con.commit()
+        cur.close()
+        con.close()
+    except Exception as e:
+        print(f"[background_jobs] fail failed: {e}")
+
+
+def list_background_jobs(limit: int = 20) -> list[dict]:
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        cur.execute(
+            """SELECT job_id, job_type, status, current_step, last_message,
+                      articles_processed, started_at, finished_at, error_text
+               FROM background_jobs
+               ORDER BY started_at DESC
+               LIMIT %s""",
+            [limit],
+        )
+        df = _fetchdf(cur)
+        cur.close()
+        con.close()
+        if df.empty:
+            return []
+        return df.to_dict(orient="records")
+    except Exception as e:
+        print(f"[background_jobs] list failed: {e}")
+        return []
+
+
+# ============================================================
+# 클라이언트 성능 지표 집계 (client_performance 이벤트)
+# ============================================================
+
+def get_performance_metrics(hours: int = 24) -> list[dict]:
+    """event_logs의 client_performance 이벤트를 경로별로 집계."""
+    try:
+        con = _get_con()
+        cur = con.cursor()
+        cur.execute(
+            """SELECT
+                   event_data->>'path'                                                        AS path,
+                   percentile_cont(0.50) WITHIN GROUP (ORDER BY (event_data->>'lcp_ms')::int) AS lcp_p50,
+                   percentile_cont(0.75) WITHIN GROUP (ORDER BY (event_data->>'lcp_ms')::int) AS lcp_p75,
+                   percentile_cont(0.95) WITHIN GROUP (ORDER BY (event_data->>'lcp_ms')::int) AS lcp_p95,
+                   percentile_cont(0.75) WITHIN GROUP (ORDER BY (event_data->>'cls')::float)  AS cls_p75,
+                   percentile_cont(0.75) WITHIN GROUP (ORDER BY (event_data->>'max_event_ms')::int) AS inp_p75,
+                   count(*)                                                                   AS sample_count
+               FROM event_logs
+               WHERE event_type = 'client_performance'
+                 AND created_at >= now() - (%s || ' hours')::interval
+                 AND event_data->>'lcp_ms' IS NOT NULL
+               GROUP BY event_data->>'path'
+               ORDER BY sample_count DESC""",
+            [hours],
+        )
+        df = _fetchdf(cur)
+        cur.close()
+        con.close()
+        if df.empty:
+            return []
+        return df.to_dict(orient="records")
+    except Exception as e:
+        print(f"[performance_metrics] query failed: {e}")
+        return []

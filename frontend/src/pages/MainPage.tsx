@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
-import { fetchArticles, searchArticles, signup, login } from '../api/client'
+import { fetchArticles, searchArticles, signup, login, getApiAssetUrl, fetchRecommendations } from '../api/client'
 import type { Article, SearchResult } from '../api/client'
 import ArticleCard from '../components/ArticleCard'
-import { trackEvent } from '../api/logger'
+import { getSessionId, trackEvent, trackImpressions } from '../api/logger'
 
 const CATEGORIES = ['전체', '정치', '경제', '사회', '생활/문화', '세계', 'IT/과학']
 
@@ -13,6 +13,21 @@ const getHue = (s: number) => {
   if (s <= 60) return 15 + ((s - 30) / 30) * 35
   return 50 + ((s - 60) / 40) * 90
 }
+
+const ArticleListSkeleton = () => (
+  <div className="flex flex-col gap-3 w-full" aria-label="기사 목록 로딩 중">
+    {Array.from({ length: 6 }).map((_, index) => (
+      <div key={index} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="h-3 w-16 rounded bg-gray-200 animate-pulse" />
+          <div className="h-3 w-20 rounded bg-gray-100 animate-pulse" />
+        </div>
+        <div className="h-5 w-11/12 rounded bg-gray-200 animate-pulse mb-3" />
+        <div className="h-4 w-3/5 rounded bg-gray-100 animate-pulse" />
+      </div>
+    ))}
+  </div>
+)
 
 export default function MainPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -30,10 +45,17 @@ export default function MainPage() {
   useEffect(() => { trackEvent('visit_main') }, [])
   useEffect(() => { setQuery(submittedQuery) }, [submittedQuery])
 
-  const { data: categoryFilteredData, isLoading: isLoadingCategoryArticles } = useQuery({
+  const {
+    data: categoryFilteredData,
+    isLoading: isLoadingCategoryArticles,
+    isFetching: isFetchingCategoryArticles,
+    isError: isCategoryError,
+  } = useQuery({
     queryKey: ['articles', page, selectedCategory],
     queryFn: () => fetchArticles(page, 10, selectedCategory === '전체' ? undefined : selectedCategory),
     enabled: !isSearchMode,
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
   })
   const categoryFilteredArticles = categoryFilteredData?.articles || []
   const categoryTotalCount = categoryFilteredData?.total_count || 0
@@ -42,13 +64,32 @@ export default function MainPage() {
     queryKey: ['articles', 1, selectedCategory],
     queryFn: () => fetchArticles(1, 10, selectedCategory === '전체' ? undefined : selectedCategory),
     enabled: !isSearchMode && selectedCategory === '전체',
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
   })
   const firstPageArticlesForTopPicks = firstPageDataForTopPicks?.articles || []
 
-  const { data: searchResults, isLoading: isSearching } = useQuery({
+  const sessionId = getSessionId()
+  const currentUserId = localStorage.getItem('et_user')
+  const { data: personalizedArticles = [], isLoading: isLoadingPersonalized } = useQuery({
+    queryKey: ['recommendations', sessionId, currentUserId, selectedCategory, location.key],
+    queryFn: () => fetchRecommendations(sessionId, currentUserId, 5),
+    enabled: !isSearchMode && selectedCategory === '전체',
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+  })
+
+  const {
+    data: searchResults,
+    isLoading: isSearching,
+    isFetching: isFetchingSearch,
+    isError: isSearchError,
+  } = useQuery({
     queryKey: ['search', submittedQuery],
     queryFn: () => searchArticles(submittedQuery),
     enabled: isSearchMode,
+    retry: 1,
   })
 
   const handleSearch = (e: React.FormEvent) => {
@@ -81,7 +122,9 @@ export default function MainPage() {
     setSearchParams(newParams)
   }
 
-  const isLoading = isSearchMode ? isSearching : (isLoadingCategoryArticles || isLoadingFirstPageArticles)
+  const isLoading = isSearchMode ? isSearching : isLoadingCategoryArticles
+  const isRefreshing = isSearchMode ? isFetchingSearch : isFetchingCategoryArticles
+  const hasPrimaryError = isSearchMode ? isSearchError : isCategoryError
 
   let articlesToRender: (Article | SearchResult)[] = []
   let totalCountForDisplay = 0
@@ -113,7 +156,52 @@ export default function MainPage() {
 
   const hasNextPage = isSearchMode ? page * 9 < totalCountForDisplay : page * 10 < totalCountForDisplay
 
+  const impressionArticles = [...topPicks, ...articlesToRender]
+    .filter((article) => !!article.article_id)
+    .map((article, index) => ({
+      article_id: article.article_id,
+      position: index,
+    }))
+  const impressionSignature = impressionArticles
+    .map((article) => `${article.position}:${article.article_id}`)
+    .join('|')
+  const impressionSource = isSearchMode ? 'search_results' : 'main_list'
+  const impressionContextKey = [
+    impressionSource,
+    `page=${page}`,
+    `category=${selectedCategory}`,
+    `query=${submittedQuery || ''}`,
+  ].join('|')
+
   useEffect(() => { window.scrollTo(0, 0) }, [location.search])
+
+  useEffect(() => {
+    if (isLoading || isRefreshing || isLoadingFirstPageArticles || hasPrimaryError) return
+    trackEvent('view_article_list', null, {
+      source: impressionSource,
+      context_key: impressionContextKey,
+      page,
+      category: selectedCategory,
+      query: submittedQuery || undefined,
+      article_count: impressionArticles.length,
+      total_count: totalCountForDisplay,
+      article_ids: impressionArticles.map((article) => article.article_id),
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, isRefreshing, isLoadingFirstPageArticles, hasPrimaryError, impressionSignature, impressionContextKey])
+
+  useEffect(() => {
+    if (isLoading || isRefreshing || isLoadingFirstPageArticles || hasPrimaryError) return
+    if (impressionArticles.length === 0) return
+    trackImpressions(impressionArticles, {
+      source: impressionSource,
+      context_key: impressionContextKey,
+      page,
+      category: selectedCategory,
+      query: submittedQuery || undefined,
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, isRefreshing, isLoadingFirstPageArticles, hasPrimaryError, impressionSignature, impressionContextKey])
 
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [isSignupOpen, setIsSignupOpen] = useState(false)
@@ -165,8 +253,8 @@ export default function MainPage() {
       localStorage.setItem('et_user', res.user_id)
       setIsLoggedIn(true)
       closeLogin()
-    } catch (err: any) {
-      setLoginError(err?.response?.data?.detail || '로그인에 실패했습니다.')
+    } catch (err: unknown) {
+      setLoginError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || '로그인에 실패했습니다.')
     }
   }
 
@@ -189,8 +277,8 @@ export default function MainPage() {
       localStorage.setItem('et_user', res.user_id)
       setIsLoggedIn(true)
       closeSignup()
-    } catch (err: any) {
-      setSignupError(err?.response?.data?.detail || '회원가입에 실패했습니다.')
+    } catch (err: unknown) {
+      setSignupError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || '회원가입에 실패했습니다.')
     }
   }
 
@@ -525,64 +613,112 @@ export default function MainPage() {
           </div>
         </section>
 
-        {isLoading ? (
-          <div className="text-center py-20">
-            <div className="flex justify-center items-center gap-2 mb-5">
-              <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }} />
-              <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '-0.15s' }} />
-              <div className="w-3 h-3 bg-blue-600 rounded-full animate-bounce" />
-            </div>
-            <p className="text-gray-500 font-semibold tracking-tight">기사를 불러오는 중입니다...</p>
-          </div>
-        ) : (
-          <div className="space-y-10">
-            {!isSearchMode && selectedCategory === '전체' && topPicks.length > 0 && (
-              <section className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-                <h2 className="text-[17px] font-bold text-gray-800 tracking-tight flex items-center gap-2.5 mb-5">
-                  <span className="text-lg">✨</span>
-                  <span>AI가 분석한 오늘의 추천 뉴스</span>
-                </h2>
-                <div className="flex flex-col gap-5">
-                  {topPicks.map((article: any) => (
-                    <div
-                      key={article.article_id}
-                      onClick={() => {
-                        trackEvent('click_article', article.article_id, { source: 'top_pick' })
-                        navigate(`/article/${article.article_id}`)
-                      }}
-                      className="group cursor-pointer bg-gradient-to-r from-blue-50 to-blue-50/30 border border-blue-100 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 ease-out flex flex-col md:flex-row overflow-hidden"
-                    >
-                      <div className="flex flex-col justify-center p-6 space-y-3.5 flex-1 order-2 md:order-1">
-                        <div className="flex items-center gap-2">
-                          <span className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[11px] font-bold px-3 py-1 rounded-md shadow-sm tracking-wide">TOP PICK</span>
-                          <span
-                            className="text-xs font-bold px-2.5 py-1 rounded-md border shadow-sm whitespace-nowrap"
-                            style={{
-                              color: `hsl(${getHue(article.trust_score || 0)}, 80%, 35%)`,
-                              backgroundColor: `hsl(${getHue(article.trust_score || 0)}, 100%, 92%)`,
-                              borderColor: `hsl(${getHue(article.trust_score || 0)}, 85%, 85%)`
-                            }}
-                          >
-                            신뢰도 {article.trust_score}점
-                          </span>
+        <div className="space-y-10">
+            {!isSearchMode && selectedCategory === '전체' && (
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm min-w-0">
+                  <h2 className="text-[17px] font-bold text-gray-800 tracking-tight flex items-center gap-2.5 mb-5">
+                    <span className="text-lg">✨</span>
+                    <span>AI가 분석한 오늘의 추천 뉴스</span>
+                  </h2>
+                  {topPicks.length === 0 || isLoadingFirstPageArticles ? (
+                    <div className="h-64 rounded-xl border border-blue-100 bg-blue-50/40 animate-pulse" />
+                  ) : (
+                    <div className="flex flex-col gap-5">
+                      {topPicks.map((article) => (
+                        <div
+                          key={article.article_id}
+                          onClick={() => {
+                            trackEvent('click_article', article.article_id, { source: 'top_pick' })
+                            navigate(`/article/${article.article_id}`)
+                          }}
+                          className="group cursor-pointer bg-gradient-to-r from-blue-50 to-blue-50/30 border border-blue-100 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 ease-out overflow-hidden"
+                        >
+                          <div className="h-44 relative overflow-hidden border-b border-blue-100/50 bg-gray-100">
+                            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-400 text-[12px] font-semibold">썸네일 불러오는 중...</div>
+                            <img
+                              src={getApiAssetUrl(`/api/articles/${article.article_id}/thumbnail`)}
+                              alt="기사 썸네일"
+                              className="relative z-10 object-cover w-full h-full group-hover:scale-105 transition-transform duration-700 ease-out"
+                              onError={(e) => { e.currentTarget.src = `https://picsum.photos/seed/${article.article_id}/800/600` }}
+                            />
+                          </div>
+                          <div className="p-5 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[11px] font-bold px-3 py-1 rounded-md shadow-sm tracking-wide">TOP PICK</span>
+                              <span
+                                className="text-xs font-bold px-2.5 py-1 rounded-md border shadow-sm whitespace-nowrap"
+                                style={{
+                                  color: `hsl(${getHue(article.trust_score || 0)}, 80%, 35%)`,
+                                  backgroundColor: `hsl(${getHue(article.trust_score || 0)}, 100%, 92%)`,
+                                  borderColor: `hsl(${getHue(article.trust_score || 0)}, 85%, 85%)`
+                                }}
+                              >
+                                신뢰도 {article.trust_score}점
+                              </span>
+                            </div>
+                            <h3 className="text-[21px] font-extrabold text-gray-900 group-hover:text-blue-600 transition-colors break-keep leading-[1.35] tracking-tight line-clamp-2">{article.title}</h3>
+                            <p className="text-[14px] text-gray-600 font-medium line-clamp-3 leading-relaxed break-keep">{article.summary_text || article.chunk_text}</p>
+                            <div className="text-[12px] text-gray-400 font-semibold flex gap-2">
+                              <span>{article.source}</span><span>·</span><span>{article.published_at?.substring(0, 10)}</span>
+                            </div>
+                          </div>
                         </div>
-                        <h3 className="text-2xl sm:text-[26px] font-extrabold text-gray-900 group-hover:text-blue-600 transition-colors break-keep leading-[1.3] tracking-tight">{article.title}</h3>
-                        <p className="text-[15px] text-gray-600 font-medium line-clamp-3 leading-relaxed break-keep">{article.summary_text || article.chunk_text}</p>
-                        <div className="text-[13px] text-gray-400 font-semibold flex gap-2">
-                          <span>{article.source}</span><span>·</span><span>{article.published_at?.substring(0, 10)}</span>
-                        </div>
-                      </div>
-                      <div className="w-full md:w-1/3 lg:w-[35%] h-52 md:h-auto relative overflow-hidden order-1 md:order-2 border-b md:border-b-0 md:border-l border-blue-100/50 bg-gray-100">
-                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-400 text-[12px] font-semibold">썸네일 불러오는 중...</div>
-                        <img
-                          src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/articles/${article.article_id}/thumbnail`}
-                          alt="기사 썸네일"
-                          className="relative z-10 object-cover w-full h-full group-hover:scale-105 transition-transform duration-700 ease-out"
-                          onError={(e) => { e.currentTarget.src = `https://picsum.photos/seed/${article.article_id}/800/600` }}
-                        />
-                      </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm min-w-0">
+                  <h2 className="text-[17px] font-bold text-gray-800 tracking-tight flex items-center gap-2.5 mb-5">
+                    <span className="text-lg">🎯</span>
+                    <span>AI가 분석한 당신을 위한 뉴스</span>
+                  </h2>
+                  {isLoadingPersonalized ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <div key={index} className="h-20 rounded-xl border border-gray-100 bg-gray-50 animate-pulse" />
+                      ))}
+                    </div>
+                  ) : personalizedArticles.length > 0 ? (
+                    <div className="divide-y divide-gray-100">
+                      {personalizedArticles.slice(0, 5).map((article, index) => (
+                        <button
+                          key={article.article_id}
+                          type="button"
+                          onClick={() => {
+                            trackEvent('click_article', article.article_id, { source: 'personalized_recommendation', rank: index + 1 })
+                            navigate(`/article/${article.article_id}`)
+                          }}
+                          className="group w-full text-left py-3.5 first:pt-0 last:pb-0 flex gap-3 hover:bg-blue-50/50 rounded-lg transition-colors"
+                        >
+                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white text-[12px] font-extrabold">
+                            {index + 1}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[14px] font-extrabold text-gray-900 leading-snug break-keep line-clamp-2 group-hover:text-blue-600 transition-colors">
+                              {article.title}
+                            </span>
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-gray-400">
+                              <span>{article.source}</span>
+                              <span>·</span>
+                              <span>{article.published_at?.substring(0, 10)}</span>
+                              {article.trust_score > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-blue-600">신뢰도 {article.trust_score}점</span>
+                                </>
+                              )}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="h-64 rounded-xl border border-dashed border-gray-200 bg-gray-50/70 flex items-center justify-center text-[14px] font-semibold text-gray-400">
+                      추천할 기사를 준비하는 중입니다.
+                    </div>
+                  )}
                 </div>
               </section>
             )}
@@ -590,14 +726,30 @@ export default function MainPage() {
             <section className="space-y-5">
               <h2 className="text-[16px] font-bold text-gray-700 tracking-tight border-b border-gray-200 pb-3 flex items-center gap-2">
                 {submittedQuery ? `"${submittedQuery}" 검색 결과` : selectedCategory !== '전체' ? `${selectedCategory} 관련 기사` : '최신 기사'}
+                {isRefreshing && !isLoading && (
+                  <span className="text-[12px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">업데이트 중</span>
+                )}
                 {(isSearchMode || selectedCategory !== '전체') && (
                   <span className="text-[13px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full ml-1">{totalCountForDisplay}건</span>
                 )}
               </h2>
 
-              {articlesToRender.length > 0 ? (
+              {isLoading ? (
+                <ArticleListSkeleton />
+              ) : hasPrimaryError ? (
+                <div className="bg-white rounded-2xl border border-red-100 p-10 text-center">
+                  <p className="text-gray-900 font-bold tracking-tight mb-2">기사를 불러오지 못했습니다.</p>
+                  <p className="text-gray-500 text-[14px] font-medium mb-5">네트워크나 서버 상태를 확인한 뒤 다시 시도해주세요.</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-semibold text-[14px] transition-all shadow-sm"
+                  >
+                    다시 시도
+                  </button>
+                </div>
+              ) : articlesToRender.length > 0 ? (
                 <div className="flex flex-col gap-3 w-full">
-                  {articlesToRender.map((article: any) => (
+                  {articlesToRender.map((article) => (
                     <div
                       key={article.article_id}
                       className="h-full transition-transform duration-300 ease-out hover:-translate-y-1"
@@ -608,8 +760,19 @@ export default function MainPage() {
                   ))}
                 </div>
               ) : (
-                <div className="bg-white/80 rounded-2xl border border-dashed border-gray-200 p-16 text-center">
-                  <p className="text-gray-500 font-semibold tracking-tight">관련 기사를 찾을 수 없습니다.</p>
+                <div className="bg-white/80 rounded-2xl border border-dashed border-gray-200 p-10 text-center">
+                  <p className="text-gray-900 font-bold tracking-tight mb-2">
+                    {isSearchMode ? '검색 결과가 없습니다.' : '아직 표시할 기사가 없습니다.'}
+                  </p>
+                  <p className="text-gray-500 text-[14px] font-medium mb-5">
+                    {isSearchMode ? '검색어를 바꾸거나 필터를 초기화해보세요.' : '관리자 화면에서 최신 기사를 수집할 수 있습니다.'}
+                  </p>
+                  <button
+                    onClick={() => isSearchMode || selectedCategory !== '전체' ? handleCategoryClick('전체') : navigate('/admin')}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-semibold text-[14px] transition-all shadow-sm"
+                  >
+                    {isSearchMode || selectedCategory !== '전체' ? '필터 초기화' : '관리자 화면으로 이동'}
+                  </button>
                 </div>
               )}
 
@@ -622,7 +785,6 @@ export default function MainPage() {
               )}
             </section>
           </div>
-        )}
       </main>
     </div>
   )

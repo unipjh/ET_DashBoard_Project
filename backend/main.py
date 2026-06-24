@@ -1,14 +1,21 @@
 import os
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import articles, search, admin, trust, feedback, logs, stocks, auth
+from backend.routers import articles, search, admin, trust, feedback, logs, stocks, auth, recommendations
 from backend.services import repo
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    repo.init_db()
+    app.state.db_startup_error = None
+    try:
+        repo.init_db()
+    except Exception as e:
+        app.state.db_startup_error = f"{type(e).__name__}: {e}"
+        print(f"[STARTUP WARN] DB initialization failed: {app.state.db_startup_error}")
     yield
 
 
@@ -26,6 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_timing_header(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start) * 1000
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+    print(f"[HTTP] {request.method} {request.url.path} {response.status_code} {duration_ms:.1f}ms")
+    return response
+
 app.include_router(articles.router)
 app.include_router(search.router)
 app.include_router(admin.router)
@@ -34,8 +51,22 @@ app.include_router(feedback.router)
 app.include_router(logs.router)
 app.include_router(stocks.router)
 app.include_router(auth.router)
+app.include_router(recommendations.router)
 
 
 @app.get("/")
 def root():
     return {"message": "ET API is running"}
+
+
+@app.get("/health")
+def health():
+    ok, error = repo.check_db()
+    if ok:
+        return {"status": "ok", "database": "ok"}
+
+    detail = getattr(app.state, "db_startup_error", None) or error
+    return JSONResponse(
+        status_code=503,
+        content={"status": "degraded", "database": "unavailable", "detail": detail},
+    )

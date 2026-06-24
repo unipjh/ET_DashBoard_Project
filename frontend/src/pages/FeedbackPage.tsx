@@ -1,24 +1,40 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+interface StoredFeedback {
+  articleId: string
+  title?: string
+  type: 'like' | 'dislike'
+  timestamp?: number
+}
+
+interface FeedbackStats {
+  like: number
+  dislike: number
+}
+
 export default function FeedbackPage() {
   const navigate = useNavigate()
-  const [feedbacks, setFeedbacks] = useState<any[]>([])
-  const [globalStats, setGlobalStats] = useState<Record<string, any>>({})
+  const [feedbacks, setFeedbacks] = useState<StoredFeedback[]>([])
+  const [globalStats, setGlobalStats] = useState<Record<string, FeedbackStats>>({})
   const userId = 'guest'
 
   useEffect(() => {
     try {
       const storageKey = `feedbacks_${userId}`
       const storedFeedbacks = localStorage.getItem(storageKey)
-      let userFeedbacks = storedFeedbacks && storedFeedbacks !== 'undefined' ? JSON.parse(storedFeedbacks) : []
+      const parsedFeedbacks: unknown = storedFeedbacks && storedFeedbacks !== 'undefined' ? JSON.parse(storedFeedbacks) : []
+      let userFeedbacks: StoredFeedback[] = Array.isArray(parsedFeedbacks) ? parsedFeedbacks : []
       if (!Array.isArray(userFeedbacks)) userFeedbacks = []
-      userFeedbacks.sort((a: any, b: any) => (b?.timestamp || 0) - (a?.timestamp || 0))
+      userFeedbacks.sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0))
       setFeedbacks(userFeedbacks)
 
       const statsKey = 'global_feedback_stats'
       const storedStats = localStorage.getItem(statsKey)
-      setGlobalStats(storedStats && storedStats !== 'undefined' ? JSON.parse(storedStats) : {})
+      const parsedStats: unknown = storedStats && storedStats !== 'undefined' ? JSON.parse(storedStats) : {}
+      setGlobalStats(parsedStats && typeof parsedStats === 'object' && !Array.isArray(parsedStats)
+        ? parsedStats as Record<string, FeedbackStats>
+        : {})
     } catch (e) {
       console.error('데이터 파싱 에러:', e)
       setFeedbacks([])

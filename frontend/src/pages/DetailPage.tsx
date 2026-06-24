@@ -93,13 +93,24 @@ const CRITERIA_LABELS: Record<string, string> = {
   clickbait_risk: '어뷰징 위험도',
 }
 
-
 const CRITERIA_TOOLTIPS: Record<string, string> = {
   source_credibility: '기사를 발행한 매체가 공식적으로 검증된 언론사인지 판별합니다. 주요 방송사 및 종합 일간지 등 공신력 있는 매체일수록 높은 점수가 부여되며, 개인 SNS나 익명 커뮤니티 글인 경우 낮은 점수가 부여됩니다.',
   evidence_support: '기사의 주장이 객관적인 데이터로 탄탄하게 뒷받침되고 있는지 평가합니다. 본문 내에 구체적인 수치나 통계 자료, 실명이 공개된 전문가의 인터뷰, 또는 공식 기관의 발표 내용이 명확하게 포함되어 있을수록 높은 점수를 받습니다.',
   style_neutrality: '기사가 사실 전달이라는 본연의 목적에 충실한지 AI가 언어적 패턴을 분석합니다. 독자의 감정을 자극하는 과장된 형용사나 편향적인 표현이 없는지, 그리고 기자의 개인적인 의견과 객관적 사실이 명확히 구분되어 있는지를 측정합니다.',
   logical_consistency: '기사의 구조적 완성도와 문맥의 흐름을 평가합니다. 기사 초반의 서론과 후반의 결론이 일치하는지, 본문 내에 서로 모순되는 문장이 없는지, 제목에서 제시한 주장이 본문에서 충실하게 설명되고 있는지 다각도로 분석합니다.',
   clickbait_risk: '조회수를 끌어올리기 위한 \'낚시성(Clickbait)\' 기사인지 판별하는 지표입니다. 제목이 본문 내용을 지나치게 과장하거나 왜곡하지는 않았는지, 자극적인 표현으로 독자의 클릭을 유도하지 않는지 검사합니다. (0점에 가까울수록 안전하고 우수한 기사입니다.)',
+}
+
+interface StoredFeedback {
+  articleId: string
+  title?: string
+  type: 'like' | 'dislike'
+  timestamp?: number
+}
+
+interface CriteriaItem {
+  score?: number
+  reason?: string
 }
 
 export default function DetailPage() {
@@ -156,20 +167,22 @@ export default function DetailPage() {
   useEffect(() => {
     if (!id) return
     const storageKey = `feedbacks_${userId}`
-    const userFeedbacks = JSON.parse(localStorage.getItem(storageKey) || '[]')
-    const existing = userFeedbacks.find((f: any) => f.articleId === id)
+    const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) || '[]')
+    const userFeedbacks: StoredFeedback[] = Array.isArray(parsed) ? parsed : []
+    const existing = userFeedbacks.find((f) => f.articleId === id)
     setFeedback(existing ? existing.type : null)
   }, [id, userId])
 
   const handleFeedback = (newFeedback: 'like' | 'dislike') => {
     if (!id) return
     const storageKey = `feedbacks_${userId}`
-    let userFeedbacks = JSON.parse(localStorage.getItem(storageKey) || '[]')
+    const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) || '[]')
+    let userFeedbacks: StoredFeedback[] = Array.isArray(parsed) ? parsed : []
 
     // 1. 피드백 취소 시
     if (feedback === newFeedback) {
       setFeedback(null)
-      userFeedbacks = userFeedbacks.filter((f: any) => f.articleId !== id)
+      userFeedbacks = userFeedbacks.filter((f) => f.articleId !== id)
       localStorage.setItem(storageKey, JSON.stringify(userFeedbacks))
       feedbackMutation.mutate({ articleId: id, feedback: null })
       
@@ -184,7 +197,7 @@ export default function DetailPage() {
 
     // 2. 새로운 피드백 등록 및 변경 시
     setFeedback(newFeedback)
-    userFeedbacks = userFeedbacks.filter((f: any) => f.articleId !== id)
+    userFeedbacks = userFeedbacks.filter((f) => f.articleId !== id)
     userFeedbacks.push({ articleId: id, title: article?.title || '알 수 없는 기사', type: newFeedback, timestamp: Date.now() })
     localStorage.setItem(storageKey, JSON.stringify(userFeedbacks))
     
@@ -270,8 +283,15 @@ export default function DetailPage() {
     )
   }
 
-  let criteriaData: Record<string, any> = {}
-  try { criteriaData = JSON.parse(article.trust_per_criteria || '{}') } catch (e) {}
+  let criteriaData: Record<string, CriteriaItem> = {}
+  try {
+    const parsed: unknown = JSON.parse(article.trust_per_criteria || '{}')
+    criteriaData = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, CriteriaItem>
+      : {}
+  } catch {
+    criteriaData = {}
+  }
 
   const criteriaKeys = Object.keys(CRITERIA_LABELS)
   const radarCenterX = 170
@@ -295,9 +315,13 @@ export default function DetailPage() {
 
   let keywordList: string[] = []
   try {
-    const parsed = JSON.parse(article.keywords || '[]')
-    keywordList = (Array.isArray(parsed) ? parsed : []).map((kw: string) => kw.split('>').pop()?.trim() || kw)
-  } catch (e) {}
+    const parsed: unknown = JSON.parse(article.keywords || '[]')
+    keywordList = (Array.isArray(parsed) ? parsed : [])
+      .filter((kw): kw is string => typeof kw === 'string')
+      .map((kw) => kw.split('>').pop()?.trim() || kw)
+  } catch {
+    keywordList = []
+  }
 
   const contentLen = (article.full_text || article.summary_text || '').length
   const displayKeywords = contentLen < 500 ? keywordList.slice(0, 3) : keywordList.slice(0, 5)
@@ -319,7 +343,7 @@ export default function DetailPage() {
         {stocks && (
           <div className="ml-auto flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-2 shadow-sm">
             {(['KOSPI', 'KOSDAQ', 'DOW'] as const).map((name, i) => {
-              const item = (stocks as any)[name]
+              const item = stocks[name]
               if (!item || item.price === null) return null
               const pct = item.change_pct ?? 0
               const isUp = pct >= 0

@@ -1,9 +1,11 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 import pandas as pd
 import json
 from backend.services import repo
+from backend.services import encoder_inference
 from backend.services.crawl import fetch_articles_from_naver
 from backend.services.trust import score_trust
 from backend.services.process_status import update_status
@@ -12,7 +14,7 @@ import time
 from backend.services.config import get_gemini_api_key
 
 GEMINI_API_KEY = get_gemini_api_key()
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
 # 🔧 튜닝 포인트 1: 임베딩 모델을 gemini-embedding-001로 통일
@@ -24,7 +26,6 @@ EMBEDDING_DIM = 768
 
 def run_gemini_summary_and_keywords(text: str) -> tuple[str, str]:
     """Gemini로 요약 및 키워드 추출을 1번의 호출로 동시에 수행"""
-    model = genai.GenerativeModel('gemini-2.5-flash-lite')
     attempt = 1
 
     # 1. 본문 길이에 따른 프롬프트 분기
@@ -62,9 +63,10 @@ def run_gemini_summary_and_keywords(text: str) -> tuple[str, str]:
 
     while True:
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
+            response = client.models.generate_content(
+                model='gemini-2.5-flash-lite',
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json"),
             )
             
             raw_text = response.text.strip()
@@ -109,12 +111,12 @@ def run_gemini_embedding(text: str, task_type: str = "retrieval_document") -> li
         return [0.0] * EMBEDDING_DIM
 
     try:
-        result = genai.embed_content(
+        result = client.models.embed_content(
             model=EMBEDDING_MODEL,
-            content=text,
-            task_type=task_type
+            contents=text,
+            config=types.EmbedContentConfig(task_type=task_type),
         )
-        embedding = result['embedding']
+        embedding = list(result.embeddings[0].values)
 
         # 768 차원으로 맞추기
         if len(embedding) > EMBEDDING_DIM:
@@ -186,6 +188,17 @@ def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
         # 🔧 튜닝 포인트 5: 제목+요약 복합 임베딩을 embed_summary로 저장
         #    → 상세 페이지에서 관련 기사 검색 시 이 벡터를 활용하면 정확도 향상
         title_summary_text = f"{title}\n{summary}"
+        summary_embedding = run_gemini_embedding(title_summary_text, task_type="retrieval_document")
+        title_embedding = run_gemini_embedding(
+            f"[?쒕ぉ] {title}", task_type="retrieval_document"
+        )
+        learned_embedding = None
+        if encoder_inference.is_model_ready():
+            learned_embedding = encoder_inference.encode_news({
+                "title_embedding": repo._vec_str(title_embedding),
+                "embed_summary": repo._vec_str(summary_embedding),
+                "category": category,
+            })
 
         rows.append({
             "article_id": aid,
@@ -198,7 +211,8 @@ def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
             "summary_text": summary,
             "keywords": keywords,
             "embed_full": "[]",
-            "embed_summary": "[]",
+            "embed_summary": repo._vec_str(summary_embedding),
+            "learned_embedding": learned_embedding,
             "trust_score":        trust["score"],
             "trust_verdict":      trust["verdict"],
             "trust_reason":       trust["reason"],
@@ -240,6 +254,9 @@ def build_ready_rows_from_naver(df_raw: pd.DataFrame) -> int:
     if rows:
         update_status("repo.py", f"💾 {len(rows)}개 기사를 DB에 저장 중...")
         repo.upsert_articles(pd.DataFrame(rows))
+        for row in rows:
+            if row.get("learned_embedding"):
+                repo.update_article_learned_embedding(row["article_id"], row["learned_embedding"])
 
     if chunk_rows:
         update_status("repo.py", f"💾 {len(chunk_rows)}개 청크를 DB에 저장 중...")

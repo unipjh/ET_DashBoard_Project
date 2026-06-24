@@ -14,5 +14,9 @@ class LogEvent(BaseModel):
 
 @router.post("")
 def record_log(event: LogEvent, background_tasks: BackgroundTasks):
-    background_tasks.add_task(repo.insert_log, event.model_dump())
+    payload = event.model_dump()
+    if event.event_type == "impression":
+        background_tasks.add_task(repo.insert_impression_log, payload)
+    else:
+        background_tasks.add_task(repo.insert_log, payload)
     return {"status": "success"}

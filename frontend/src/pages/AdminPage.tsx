@@ -1,21 +1,28 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { fetchStats } from '../api/client'
+import { API_BASE_URL, adminHeaders, fetchAdminStats, validateAdmin } from '../api/client'
 import type { AdminStats } from '../api/client'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const getAdminErrorMessage = (error: unknown) => {
+  const maybeResponse = error as { response?: { status?: number; data?: { detail?: string } } }
+  const status = maybeResponse.response?.status
+  const detail = maybeResponse.response?.data?.detail
+
+  if (status === 401) return '비밀번호가 맞지 않습니다.'
+  if (status === 503) return detail || '관리자 비밀번호가 서버에 설정되어 있지 않습니다.'
+  if (detail) return detail
+  return error instanceof Error ? error.message : '요청을 처리하지 못했습니다.'
+}
 
 export default function AdminPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  useEffect(() => {
-    if (localStorage.getItem('et_user') !== 'etdashboard@naver.com') {
-      navigate('/', { replace: true })
-    }
-  }, [])
-
+  const [loginPassword, setLoginPassword] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
   const [crawlMax, setCrawlMax] = useState(0)
   const ALL_CATEGORIES = ["IT/과학", "경제", "사회", "생활/문화", "세계", "정치", "연예", "스포츠"]
 
@@ -30,35 +37,59 @@ export default function AdminPage() {
       try {
         const parsed = JSON.parse(stored)
         if (parsed && typeof parsed === 'object' && 'status' in parsed && parsed.status === 'crawling') return parsed
-      } catch(e) {}
+      } catch {
+        localStorage.removeItem('crawlingState')
+      }
     }
     return { status: 'idle', prevCount: null }
   })
 
+  const authMutation = useMutation({
+    mutationFn: validateAdmin,
+    onSuccess: () => {
+      setAdminPassword(loginPassword)
+      setIsAuthenticated(true)
+      setAuthError(null)
+      queryClient.invalidateQueries({ queryKey: ['adminStats'] })
+    },
+    onError: (error: unknown) => {
+      setAuthError(getAdminErrorMessage(error))
+      setIsAuthenticated(false)
+      setAdminPassword('')
+    },
+  })
+
   const { data: stats, isLoading: isLoadingStats } = useQuery<AdminStats>({
     queryKey: ['adminStats'],
-    queryFn: fetchStats,
-    refetchInterval: 5000,
+    queryFn: () => fetchAdminStats(adminPassword),
+    enabled: isAuthenticated && !!adminPassword,
+    refetchInterval: isAuthenticated ? 5000 : false,
   })
 
   const { data: processStatus } = useQuery({
     queryKey: ['processStatus'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/admin/process-status`)
+      const res = await fetch(`${API_BASE_URL}/api/admin/process-status`, {
+        headers: adminHeaders(adminPassword),
+      })
       if (!res.ok) return null
       return res.json()
     },
+    enabled: isAuthenticated && !!adminPassword,
     refetchInterval: crawlState.status === 'crawling' ? 200 : false,
     refetchOnWindowFocus: false,
     staleTime: 0,
   })
+  const processName = processStatus?.process_name
+  const processCurrentStep = processStatus?.current_step
+  const processLastMessage = processStatus?.last_message
 
   const crawlMutation = useMutation({
     mutationFn: async (payload: { max: number, categories: string[] }) => {
       const perCat = Math.max(1, Math.ceil(payload.max / payload.categories.length))
-      const res = await fetch(`${API_BASE}/api/admin/crawl`, {
+      const res = await fetch(`${API_BASE_URL}/api/admin/crawl`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...adminHeaders(adminPassword) },
         body: JSON.stringify({ max_articles_per_category: perCat, categories: payload.categories, total_articles: payload.max })
       })
       if (!res.ok) throw new Error('크롤링 서버 에러')
@@ -76,8 +107,9 @@ export default function AdminPage() {
         time: new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
       }])
     },
-    onError: (error: any) => {
-      alert(`크롤링 작업 시작에 실패했습니다: ${error.message || '서버 에러'}`)
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : '서버 에러'
+      alert(`크롤링 작업 시작에 실패했습니다: ${message}`)
       setCrawlState({ status: 'idle', prevCount: null })
     },
   })
@@ -88,14 +120,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (crawlState.status === 'crawling') {
-      if (processStatus?.process_name === 'crawl') hasStartedRef.current = true
+      if (processName === 'crawl') hasStartedRef.current = true
 
-      if (processStatus?.process_name === 'idle') {
+      if (processName === 'idle') {
         if (hasStartedRef.current) {
           setCrawlState(prev => ({ ...prev, status: 'success' }))
           hasStartedRef.current = false
 
-          fetchStats().then(latestStats => {
+          fetchAdminStats(adminPassword).then(latestStats => {
             const newCount = (typeof latestStats?.total_articles === 'number' && typeof crawlState.prevCount === 'number')
               ? Math.max(0, latestStats.total_articles - crawlState.prevCount)
               : 0
@@ -114,30 +146,98 @@ export default function AdminPage() {
         }
       }
     }
-  }, [processStatus?.process_name, crawlState.status, crawlState.prevCount, queryClient])
+  }, [processName, crawlState.status, crawlState.prevCount, queryClient, adminPassword])
 
   useEffect(() => {
-    if (processStatus && crawlState.status === 'crawling') {
-      if (processStatus.last_message) {
+    if (crawlState.status === 'crawling') {
+      if (processLastMessage) {
         setLogs(prev => {
-          if (prev.length > 0 && prev[prev.length - 1].message === processStatus.last_message) return prev
+          if (prev.length > 0 && prev[prev.length - 1].message === processLastMessage) return prev
           return [...prev, {
-            step: processStatus.current_step || '시스템',
-            message: processStatus.last_message,
+            step: processCurrentStep || '시스템',
+            message: processLastMessage,
             time: new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
           }]
         })
       }
     }
-  }, [processStatus?.last_message, processStatus?.current_step, crawlState.status])
+  }, [processLastMessage, processCurrentStep, crawlState.status])
 
   useEffect(() => {
     if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: "smooth" })
   }, [logs])
 
+  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!loginPassword.trim()) {
+      setAuthError('관리자 비밀번호를 입력해주세요.')
+      return
+    }
+    authMutation.mutate(loginPassword)
+  }
+
+  const handleLogout = () => {
+    setIsAuthenticated(false)
+    setAdminPassword('')
+    setLoginPassword('')
+    setAuthError(null)
+    setCrawlState({ status: 'idle', prevCount: null })
+    queryClient.removeQueries({ queryKey: ['adminStats'] })
+    queryClient.removeQueries({ queryKey: ['processStatus'] })
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#fefde7] font-sans antialiased text-gray-900">
+        <header className="w-full px-6 py-4 flex items-center justify-start bg-[#fefde7]/90 backdrop-blur-md sticky top-0 z-10">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center justify-center w-12 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105"
+            title="메인으로 돌아가기"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2563eb" className="w-7 h-7">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+            </svg>
+          </button>
+        </header>
+
+        <main className="max-w-md mx-auto px-4 pt-20">
+          <section className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+            <h1 className="text-[20px] font-extrabold text-gray-900 tracking-tight mb-2">관리자 인증</h1>
+            <p className="text-[14px] text-gray-500 font-medium leading-relaxed mb-5">
+              관리자 작업과 통계 조회를 위해 서버에 설정된 비밀번호가 필요합니다.
+            </p>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                placeholder="관리자 비밀번호"
+                autoComplete="current-password"
+                className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-[15px] font-medium text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+              />
+              {authError && (
+                <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] font-semibold text-red-600">
+                  {authError}
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={authMutation.isPending}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold text-[15px] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all shadow-sm"
+              >
+                {authMutation.isPending ? '확인 중...' : '관리자 화면 열기'}
+              </button>
+            </form>
+          </section>
+        </main>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-neutral-50 font-sans antialiased text-gray-900">
-      <header className="w-full px-6 py-4 flex items-center justify-start bg-neutral-50/90 backdrop-blur-md sticky top-0 z-10">
+    <div className="min-h-screen bg-[#fefde7] font-sans antialiased text-gray-900">
+      <header className="w-full px-6 py-4 flex items-center justify-between bg-[#fefde7]/90 backdrop-blur-md sticky top-0 z-10">
         <button
           onClick={() => navigate('/')}
           className="flex items-center justify-center w-12 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105"
@@ -146,6 +246,12 @@ export default function AdminPage() {
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2563eb" className="w-7 h-7">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
           </svg>
+        </button>
+        <button
+          onClick={handleLogout}
+          className="bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-xl border border-gray-200 shadow-sm font-semibold text-[13px] transition-all"
+        >
+          로그아웃
         </button>
       </header>
 
@@ -221,7 +327,7 @@ export default function AdminPage() {
                       <tr key={cat.category} className="border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50 transition-colors">
                         <th scope="row" className="px-4 py-3.5 font-bold text-gray-900 whitespace-nowrap text-[13px]">{cat.category}</th>
                         <td className="px-4 py-3.5 text-gray-500 text-[13px]">{cat.total}</td>
-                        <td className="px-4 py-3.5 font-bold text-blue-600 text-[13px]">{(cat as any).today_articles || 0}</td>
+                        <td className="px-4 py-3.5 font-bold text-blue-600 text-[13px]">{cat.today_articles || 0}</td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2">
                             <div className="w-full bg-gray-200 rounded-full h-1.5">
