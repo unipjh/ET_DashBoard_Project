@@ -19,7 +19,7 @@ const getHue = (s: number) => {
 const ArticleListSkeleton = () => (
   <div className="flex flex-col gap-3 w-full" aria-label="기사 목록 로딩 중">
     {Array.from({ length: 6 }).map((_, index) => (
-      <div key={index} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+      <div key={index} className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <div className="h-3 w-16 rounded bg-gray-200 animate-pulse" />
           <div className="h-3 w-20 rounded bg-gray-100 animate-pulse" />
@@ -45,6 +45,7 @@ export default function MainPage() {
   const isSearchMode = !!submittedQuery
   const [isRefreshFeedActive, setIsRefreshFeedActive] = useState(false)
   const [randomRefreshArticles, setRandomRefreshArticles] = useState<Article[]>([])
+  const articleListRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { trackEvent('visit_main') }, [])
   useEffect(() => { setQuery(submittedQuery) }, [submittedQuery])
@@ -76,6 +77,71 @@ export default function MainPage() {
   const sessionId = getSessionId()
   const currentUserId = localStorage.getItem('et_user')
   const isAdmin = currentUserId === 'etdashboard@naver.com'
+
+  const SEARCH_HISTORY_LIMIT = 10
+  const [searchHistory, setSearchHistory] = useState<string[]>([])
+  const [isSearchFocused, setIsSearchFocused] = useState(false)
+  const searchBoxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!currentUserId) { setSearchHistory([]); return }
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(`search_history_${currentUserId}`) || '[]')
+      setSearchHistory(Array.isArray(stored) ? stored.filter((v): v is string => typeof v === 'string') : [])
+    } catch {
+      setSearchHistory([])
+    }
+  }, [currentUserId])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setIsSearchFocused(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const saveSearchHistory = (term: string) => {
+    if (!currentUserId || !term.trim()) return
+    const trimmed = term.trim()
+    setSearchHistory(prev => {
+      const next = [trimmed, ...prev.filter(h => h !== trimmed)].slice(0, SEARCH_HISTORY_LIMIT)
+      localStorage.setItem(`search_history_${currentUserId}`, JSON.stringify(next))
+      return next
+    })
+  }
+
+  const runSearch = (term: string) => {
+    const trimmed = term.trim()
+    const newParams = new URLSearchParams(searchParams)
+    if (trimmed) {
+      trackEvent('execute_search', null, { query: trimmed })
+      newParams.set('q', trimmed)
+      newParams.delete('cat')
+      saveSearchHistory(trimmed)
+    } else {
+      newParams.delete('q')
+    }
+    newParams.set('page', '1')
+    setSearchParams(newParams)
+    setIsSearchFocused(false)
+  }
+
+  const handleHistoryClick = (term: string) => {
+    setQuery(term)
+    runSearch(term)
+  }
+
+  const removeSearchHistoryItem = (term: string) => {
+    if (!currentUserId) return
+    setSearchHistory(prev => {
+      const next = prev.filter(h => h !== term)
+      localStorage.setItem(`search_history_${currentUserId}`, JSON.stringify(next))
+      return next
+    })
+  }
   const { data: personalizedArticles = [], isLoading: isLoadingPersonalized } = useQuery({
     queryKey: ['recommendations', sessionId, currentUserId, selectedCategory, location.key],
     queryFn: () => fetchRecommendations(sessionId, currentUserId, 10),
@@ -99,16 +165,7 @@ export default function MainPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    const newParams = new URLSearchParams(searchParams)
-    if (query.trim()) {
-      trackEvent('execute_search', null, { query: query.trim() })
-      newParams.set('q', query.trim())
-      newParams.delete('cat')
-    } else {
-      newParams.delete('q')
-    }
-    newParams.set('page', '1')
-    setSearchParams(newParams)
+    runSearch(query)
   }
 
   const handleCategoryClick = (cat: string) => {
@@ -125,6 +182,7 @@ export default function MainPage() {
     const newParams = new URLSearchParams(searchParams)
     newParams.set('page', newPage.toString())
     setSearchParams(newParams)
+    articleListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const isLoading = isSearchMode ? isSearching : isLoadingCategoryArticles
@@ -178,7 +236,7 @@ export default function MainPage() {
     `query=${submittedQuery || ''}`,
   ].join('|')
 
-  useEffect(() => { window.scrollTo(0, 0) }, [location.search])
+  useEffect(() => { window.scrollTo(0, 0) }, [selectedCategory, submittedQuery])
 
   useEffect(() => {
     if (isLoading || isRefreshing || isLoadingFirstPageArticles || hasPrimaryError) return
@@ -341,31 +399,43 @@ export default function MainPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 font-sans antialiased text-gray-900">
-      <header className="w-full px-6 py-4 flex items-center justify-end gap-2 bg-neutral-50/90 backdrop-blur-md sticky top-0 z-10">
+    <div className="min-h-screen bg-paper font-sans antialiased text-gray-900">
+      <header className="w-full px-6 py-4 flex items-center gap-2 bg-paper/90 backdrop-blur-md sticky top-0 z-10">
+        {isSearchMode && (
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center justify-center w-11 h-11 bg-white hover:bg-gray-50 rounded-full transition-colors border border-gray-200 hover:border-navy-300"
+            title="뒤로가기"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2C4460" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+            </svg>
+          </button>
+        )}
+
         {/* 로그인 / 유저 메뉴 */}
         <div className="ml-auto flex items-center gap-2">
           {isLoggedIn ? (
             <div className="relative" ref={userMenuRef}>
               <button
                 onClick={() => setIsUserMenuOpen(v => !v)}
-                className="flex items-center gap-2 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105 px-4"
+                className="flex items-center gap-2 h-11 bg-white hover:bg-gray-50 rounded-full transition-colors border border-gray-200 hover:border-navy-300 px-3.5"
               >
-                <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-[13px] font-bold shrink-0">
+                <div className="w-7 h-7 rounded-full bg-navy-600 flex items-center justify-center text-white text-[13px] font-bold shrink-0">
                   {currentUserId?.charAt(0).toUpperCase()}
                 </div>
-                <span className="text-[13px] font-bold text-blue-600 hidden sm:inline">{currentUserId?.split('@')[0]}</span>
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#2563eb" className={`w-4 h-4 hidden sm:block transition-transform duration-200 ${isUserMenuOpen ? 'rotate-180' : ''}`}>
+                <span className="text-[13px] font-bold text-navy-600 hidden sm:inline">{currentUserId?.split('@')[0]}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#2C4460" className={`w-4 h-4 hidden sm:block transition-transform duration-200 ${isUserMenuOpen ? 'rotate-180' : ''}`}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                 </svg>
               </button>
 
               {isUserMenuOpen && (
-                <div className="absolute right-0 top-14 w-72 rounded-2xl shadow-2xl z-50 overflow-hidden border border-gray-200 bg-white animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 top-13 w-72 rounded-xl shadow-lg z-50 overflow-hidden border border-gray-200 bg-white animate-in fade-in slide-in-from-top-2 duration-150">
                   {/* 유저 헤더 */}
                   <div className="px-4 py-3.5 border-b border-gray-100">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-base shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-navy-600 flex items-center justify-center text-white font-bold text-base shrink-0">
                         {currentUserId?.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
@@ -378,7 +448,7 @@ export default function MainPage() {
                   {/* 메뉴 아이템 1 */}
                   <div className="py-1">
                     <button onClick={() => { setIsSettingsOpen(true); setIsUserMenuOpen(false) }}
-                      className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                      className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.99l1.004.828c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
@@ -386,7 +456,7 @@ export default function MainPage() {
                       Settings
                     </button>
                     <button onClick={handleRefreshFeed}
-                      className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                      className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                       </svg>
@@ -397,7 +467,7 @@ export default function MainPage() {
                   {/* 피드백 페이지 */}
                   <div className="border-t border-gray-100 py-1">
                     <button onClick={() => { navigate('/feedback'); setIsUserMenuOpen(false) }}
-                      className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                      className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282m0 0h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904m10.598-9.75H14.25M5.904 18.5c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 9.953 4.167 9.5 5 9.5h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" />
                       </svg>
@@ -409,7 +479,7 @@ export default function MainPage() {
                   {isAdmin && (
                     <div className="border-t border-gray-100 py-1">
                       <button onClick={() => { navigate('/admin'); setIsUserMenuOpen(false) }}
-                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                        className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.99l1.004.828c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
@@ -417,7 +487,7 @@ export default function MainPage() {
                         Admin page
                       </button>
                       <button onClick={() => { navigate('/log'); setIsUserMenuOpen(false) }}
-                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                        className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5 7.5 9l3.5 3.5L18 5m0 0h-4.5M18 5v4.5M4.5 19.5h15a.75.75 0 0 0 .75-.75V6.75" />
                         </svg>
@@ -429,14 +499,14 @@ export default function MainPage() {
                   {/* 메뉴 아이템 2 */}
                   <div className="border-t border-gray-100 py-1">
                     <button onClick={() => { setIsAboutOpen(true); setIsUserMenuOpen(false) }}
-                      className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                      className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                         <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
                       </svg>
                       About
                     </button>
                     <button onClick={() => { setIsSendFeedbackOpen(true); setIsUserMenuOpen(false) }}
-                      className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
+                      className="w-full text-left px-4 py-2.5 border border-transparent hover:border-navy-300 hover:bg-gray-50 flex items-center gap-3 text-[14px] font-medium text-gray-700 transition-colors">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5 text-gray-400 shrink-0">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
                       </svg>
@@ -460,10 +530,10 @@ export default function MainPage() {
           ) : (
             <button
               onClick={() => setIsLoginOpen(true)}
-              className="flex items-center justify-center w-12 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105"
+              className="flex items-center justify-center w-11 h-11 bg-white hover:bg-gray-50 rounded-full transition-colors border border-gray-200 hover:border-navy-300"
               title="로그인"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="#2563eb" className="w-7 h-7">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="#2C4460" className="w-7 h-7">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
               </svg>
             </button>
@@ -479,7 +549,7 @@ export default function MainPage() {
           onClick={closeLogin}
         >
           <div
-            className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl bg-white border border-gray-200"
+            className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-xl bg-white border border-gray-200"
             onClick={e => e.stopPropagation()}
           >
             <div className="px-8 pt-8 pb-10 space-y-5">
@@ -506,21 +576,21 @@ export default function MainPage() {
                   placeholder="이메일"
                   value={loginEmail}
                   onChange={e => setLoginEmail(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all"
                 />
                 <input
                   type="password"
                   placeholder="비밀번호"
                   value={loginPassword}
                   onChange={e => setLoginPassword(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all"
                 />
                 {loginError && (
                   <p className="text-red-500 text-[13px] font-semibold px-1">{loginError}</p>
                 )}
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-[16px] tracking-tight transition-all hover:scale-[1.02] shadow-md shadow-blue-200"
+                  className="w-full py-3 rounded-xl bg-navy-600 hover:bg-navy-700 text-white font-extrabold text-[16px] tracking-tight transition-all"
                 >
                   로그인
                 </button>
@@ -549,7 +619,7 @@ export default function MainPage() {
           onClick={closeSignup}
         >
           <div
-            className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl bg-white border border-gray-200"
+            className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-xl bg-white border border-gray-200"
             onClick={e => e.stopPropagation()}
           >
             <div className="px-8 pt-8 pb-10 space-y-5">
@@ -576,28 +646,28 @@ export default function MainPage() {
                   placeholder="이메일"
                   value={signupEmail}
                   onChange={e => setSignupEmail(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all"
                 />
                 <input
                   type="password"
                   placeholder="비밀번호"
                   value={signupPassword}
                   onChange={e => setSignupPassword(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all"
                 />
                 <input
                   type="password"
                   placeholder="비밀번호 확인"
                   value={signupConfirm}
                   onChange={e => setSignupConfirm(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[15px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all"
                 />
                 {signupError && (
                   <p className="text-red-500 text-[13px] font-semibold px-1">{signupError}</p>
                 )}
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-[16px] tracking-tight transition-all hover:scale-[1.02] shadow-md shadow-blue-200"
+                  className="w-full py-3 rounded-xl bg-navy-600 hover:bg-navy-700 text-white font-extrabold text-[16px] tracking-tight transition-all"
                 >
                   회원가입
                 </button>
@@ -623,7 +693,7 @@ export default function MainPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(30,41,59,0.45)', backdropFilter: 'blur(6px)' }}
           onClick={() => { setIsSettingsOpen(false); setDeleteConfirmMode(false); setDeletePassword(''); setDeleteError('') }}>
-          <div className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl bg-white border border-gray-200"
+          <div className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-xl bg-white border border-gray-200"
             onClick={e => e.stopPropagation()}>
             <div className="px-8 pt-8 pb-10 space-y-6">
               <div className="flex items-center justify-between">
@@ -651,7 +721,7 @@ export default function MainPage() {
                       <p className="text-red-500 text-[13px] font-semibold">탈퇴 시 모든 데이터가 삭제되며 복구할 수 없습니다.</p>
                       <input type="password" placeholder="비밀번호 입력" value={deletePassword}
                         onChange={e => setDeletePassword(e.target.value)}
-                        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-[14px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all" />
+                        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-[14px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all" />
                       {deleteError && <p className="text-red-500 text-[12px] font-semibold">{deleteError}</p>}
                       <div className="flex gap-2">
                         <button onClick={() => { setDeleteConfirmMode(false); setDeletePassword(''); setDeleteError('') }}
@@ -667,6 +737,10 @@ export default function MainPage() {
                   )}
                 </div>
               )}
+
+              <p className="text-center text-gray-400 text-[12px] font-medium pt-1">
+                © ET DashBoard — Everyday Trusted News
+              </p>
             </div>
           </div>
         </div>
@@ -677,12 +751,12 @@ export default function MainPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(30,41,59,0.45)', backdropFilter: 'blur(6px)' }}
           onClick={() => setIsAboutOpen(false)}>
-          <div className="relative w-full max-w-md rounded-3xl overflow-hidden shadow-2xl bg-white border border-gray-200"
+          <div className="relative w-full max-w-md rounded-2xl overflow-hidden shadow-xl bg-white border border-gray-200"
             onClick={e => e.stopPropagation()}>
             <div className="px-8 pt-8 pb-10 space-y-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-3 h-3 rounded-full bg-blue-400 inline-block" />
+                  <span className="w-3 h-3 rounded-full bg-navy-400 inline-block" />
                   <h2 className="text-[20px] font-extrabold text-gray-900 tracking-tight">서비스 소개</h2>
                 </div>
                 <button onClick={() => setIsAboutOpen(false)}
@@ -725,7 +799,7 @@ export default function MainPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(30,41,59,0.45)', backdropFilter: 'blur(6px)' }}
           onClick={() => setIsSendFeedbackOpen(false)}>
-          <div className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl bg-white border border-gray-200"
+          <div className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-xl bg-white border border-gray-200"
             onClick={e => e.stopPropagation()}>
             <div className="px-8 pt-8 pb-10 space-y-5">
               <div className="flex items-center justify-between">
@@ -739,11 +813,11 @@ export default function MainPage() {
                 onChange={e => setFeedbackText(e.target.value)}
                 placeholder="ET DashBoard에 대한 의견이나 개선점을 알려주세요..."
                 rows={5}
-                className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[14px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all resize-none"
+                className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-[14px] text-gray-900 placeholder-gray-400 font-medium focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all resize-none"
               />
 
               <button onClick={handleSendFeedback} disabled={!feedbackText.trim()}
-                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none text-white font-extrabold text-[15px] tracking-tight transition-all hover:scale-[1.02] shadow-md shadow-blue-200">
+                className="w-full py-3 rounded-xl bg-navy-600 hover:bg-navy-700 disabled:opacity-40 disabled:pointer-events-none text-white font-extrabold text-[15px] tracking-tight transition-all">
                 보내기
               </button>
 
@@ -757,23 +831,60 @@ export default function MainPage() {
         <section className="space-y-6">
           <div className="flex flex-col items-center gap-5 max-w-5xl mx-auto">
             <h1
-              className="text-4xl font-black tracking-tight cursor-pointer text-center text-blue-600 select-none"
+              className="logo-oval text-4xl md:text-5xl font-extrabold tracking-tight cursor-pointer text-center text-navy-600 select-none -mt-3"
               onClick={() => handleCategoryClick('전체')}
             >
               ET DashBoard
             </h1>
-            <form onSubmit={handleSearch} className="relative w-full max-w-4xl">
-              <input
-                type="text"
-                placeholder="관심있는 뉴스 키워드를 검색해보세요..."
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 text-[16px] font-medium text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
-              />
-              <button type="submit" className="absolute right-2.5 top-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-semibold text-[15px] transition-all shadow-md shadow-blue-200">
-                검색
-              </button>
-            </form>
+            <div className="relative w-full max-w-4xl" ref={searchBoxRef}>
+              <form onSubmit={handleSearch} className="relative w-full">
+                <input
+                  type="text"
+                  placeholder="관심있는 뉴스 키워드를 검색해보세요..."
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  onFocus={() => setIsSearchFocused(true)}
+                  autoComplete="off"
+                  className="w-full bg-white border border-gray-200 rounded-full px-6 py-4 text-[16px] font-medium text-gray-900 placeholder-gray-400 hover:border-navy-300 focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-colors"
+                />
+                <button type="submit" className="absolute right-2 top-2 bg-navy-600 hover:bg-navy-700 text-white px-5 py-2 rounded-full font-semibold text-[15px] transition-colors">
+                  검색
+                </button>
+              </form>
+
+              {isSearchFocused && currentUserId && searchHistory.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-lg z-20 overflow-hidden py-2">
+                  <p className="px-5 pb-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">최근 검색어</p>
+                  {searchHistory.map((term, idx) => (
+                    <div
+                      key={`${term}-${idx}`}
+                      className="group w-full flex items-center gap-2.5 pl-5 pr-2 py-2 hover:bg-gray-50 transition-colors"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleHistoryClick(term)}
+                        className="flex-1 min-w-0 flex items-center gap-2.5 text-left text-[14px] font-medium text-gray-700"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-4 h-4 text-gray-300 shrink-0">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                        <span className="truncate">{term}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeSearchHistoryItem(term) }}
+                        title="검색어 삭제"
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-200 transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 max-w-4xl mx-auto">
@@ -781,10 +892,10 @@ export default function MainPage() {
               <button
                 key={cat}
                 onClick={() => handleCategoryClick(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors duration-200 ${
                   selectedCategory === cat && !submittedQuery
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200 scale-105'
-                    : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 hover:text-gray-900 hover:shadow-sm'
+                    ? 'bg-navy-600 text-white'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:border-navy-300 hover:text-gray-900'
                 }`}
               >
                 {cat}
@@ -796,13 +907,12 @@ export default function MainPage() {
         <div className="space-y-10">
             {!isSearchMode && selectedCategory === '전체' && (
               <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm min-w-0">
-                  <h2 className="text-[17px] font-bold text-gray-800 tracking-tight flex items-center gap-2.5 mb-5">
-                    <span className="text-lg">✨</span>
-                    <span>AI가 분석한 오늘의 추천 뉴스</span>
+                <div className="bg-white rounded-xl border border-gray-200 p-6 min-w-0">
+                  <h2 className="text-[14px] font-semibold text-gray-500 tracking-tight border-b border-gray-200 pb-3 mb-5">
+                    오늘의 추천 뉴스
                   </h2>
                   {topPicks.length === 0 || isLoadingFirstPageArticles ? (
-                    <div className="h-64 rounded-xl border border-blue-100 bg-blue-50/40 animate-pulse" />
+                    <div className="h-64 rounded-lg border border-gray-100 bg-gray-50 animate-pulse" />
                   ) : (
                     <div className="flex flex-col gap-5">
                       {topPicks.map((article) => (
@@ -812,9 +922,9 @@ export default function MainPage() {
                             trackEvent('click_article', article.article_id, { source: 'top_pick' })
                             navigate(`/article/${article.article_id}`)
                           }}
-                          className="group cursor-pointer bg-gradient-to-r from-blue-50 to-blue-50/30 border border-blue-100 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 ease-out overflow-hidden"
+                          className="group cursor-pointer bg-white border border-gray-200 rounded-lg hover:border-navy-300 transition-colors duration-200 overflow-hidden"
                         >
-                          <div className="h-44 relative overflow-hidden border-b border-blue-100/50 bg-gray-100">
+                          <div className="h-44 relative overflow-hidden border-b border-gray-200 bg-gray-100">
                             <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-400 text-[12px] font-semibold">썸네일 불러오는 중...</div>
                             <img
                               src={getApiAssetUrl(`/api/articles/${article.article_id}/thumbnail`)}
@@ -824,23 +934,19 @@ export default function MainPage() {
                             />
                           </div>
                           <div className="p-5 space-y-3">
-                            <div className="flex items-center gap-2">
-                              <span className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[11px] font-bold px-3 py-1 rounded-md shadow-sm tracking-wide">TOP PICK</span>
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-navy-600 text-[11px] font-bold uppercase tracking-widest border-b-2 border-navy-600 pb-0.5">Top Pick</span>
                               <span
-                                className="text-xs font-bold px-2.5 py-1 rounded-md border shadow-sm whitespace-nowrap"
-                                style={{
-                                  color: `hsl(${getHue(article.trust_score || 0)}, 80%, 35%)`,
-                                  backgroundColor: `hsl(${getHue(article.trust_score || 0)}, 100%, 92%)`,
-                                  borderColor: `hsl(${getHue(article.trust_score || 0)}, 85%, 85%)`
-                                }}
+                                className="ml-auto text-xs font-bold whitespace-nowrap"
+                                style={{ color: `hsl(${getHue(article.trust_score || 0)}, 70%, 38%)` }}
                               >
                                 신뢰도 {article.trust_score}점
                               </span>
                             </div>
-                            <h3 className="text-[21px] font-extrabold text-gray-900 group-hover:text-blue-600 transition-colors break-keep leading-[1.35] tracking-tight line-clamp-2">{article.title}</h3>
+                            <h3 className="text-[21px] font-extrabold text-gray-900 group-hover:text-navy-600 transition-colors break-keep leading-[1.35] tracking-tight line-clamp-2">{article.title}</h3>
                             <p className="text-[14px] text-gray-600 font-medium line-clamp-3 leading-relaxed break-keep">{article.summary_text || article.chunk_text}</p>
-                            <div className="text-[12px] text-gray-400 font-semibold flex gap-2">
-                              <span>{article.source}</span><span>·</span><span>{article.published_at?.substring(0, 10)}</span>
+                            <div className="text-[12px] text-gray-400 font-semibold flex items-center gap-2">
+                              <span>{article.source}</span><span className="text-gray-300">|</span><span>{article.published_at?.substring(0, 10)}</span>
                             </div>
                           </div>
                         </div>
@@ -849,23 +955,22 @@ export default function MainPage() {
                   )}
                 </div>
 
-                <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm min-w-0 flex flex-col">
-                  <h2 className="text-[17px] font-bold text-gray-800 tracking-tight flex items-center gap-2.5 mb-5 shrink-0">
-                    <span className="text-lg">🎯</span>
-                    <span>AI가 분석한 당신을 위한 뉴스</span>
+                <div className="bg-white rounded-xl border border-gray-200 p-6 min-w-0 flex flex-col">
+                  <h2 className="text-[14px] font-semibold text-gray-500 tracking-tight border-b border-gray-200 pb-3 mb-5 flex items-center gap-2.5 shrink-0">
+                    <span>{currentUserId ? `${currentUserId.split('@')[0]}를 위한 뉴스` : '당신을 위한 뉴스'}</span>
                     {isRefreshFeedActive && (
                       <button
                         onClick={() => setIsRefreshFeedActive(false)}
-                        className="ml-auto text-[11px] font-semibold text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full transition-colors shrink-0"
+                        className="ml-auto text-[11px] font-semibold normal-case tracking-normal text-navy-600 hover:text-navy-800 underline underline-offset-2 shrink-0"
                       >
-                        이전 AI 추천으로 되돌리기
+                        이전 추천으로 되돌리기
                       </button>
                     )}
                   </h2>
                   {isLoadingPersonalized && !isRefreshFeedActive ? (
                     <div className="flex flex-col flex-1 justify-between gap-3">
                       {Array.from({ length: 5 }).map((_, index) => (
-                        <div key={index} className="flex-1 rounded-xl border border-gray-100 bg-gray-50 animate-pulse" />
+                        <div key={index} className="flex-1 rounded-lg border border-gray-100 bg-gray-50 animate-pulse" />
                       ))}
                     </div>
                   ) : (isRefreshFeedActive ? randomRefreshArticles : personalizedArticles).slice(0, 5).length > 0 ? (
@@ -878,27 +983,29 @@ export default function MainPage() {
                             trackEvent('click_article', article.article_id, { source: isRefreshFeedActive ? 'latest_feed' : 'personalized_recommendation', rank: index + 1 })
                             navigate(`/article/${article.article_id}`)
                           }}
-                          className="group w-full text-left flex-1 flex gap-3 items-center hover:bg-blue-50/50 hover:shadow-md hover:-translate-y-0.5 rounded-lg transition-all duration-300 ease-out px-1"
+                          className="group w-full text-left flex-1 flex gap-3 items-center ring-1 ring-transparent hover:ring-navy-300 hover:bg-gray-50 rounded-lg transition-colors duration-150 px-1"
                         >
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white text-[12px] font-extrabold">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-navy-600 text-white text-[12px] font-extrabold">
                             {index + 1}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[14px] font-extrabold text-gray-900 leading-snug break-keep line-clamp-2 group-hover:text-blue-600 transition-colors">
+                            <span className="block text-[14px] font-extrabold text-gray-900 leading-snug break-keep line-clamp-2 group-hover:text-navy-600 transition-colors">
                               {article.title}
                             </span>
                             <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-gray-400">
                               <span>{article.source}</span>
-                              <span>·</span>
+                              <span className="text-gray-300">|</span>
                               <span>{article.published_at?.substring(0, 10)}</span>
-                              {article.trust_score > 0 && (
-                                <>
-                                  <span>·</span>
-                                  <span className="text-blue-600">신뢰도 {article.trust_score}점</span>
-                                </>
-                              )}
                             </span>
                           </span>
+                          {article.trust_score > 0 && (
+                            <span
+                              className="ml-auto shrink-0 text-xs font-bold whitespace-nowrap"
+                              style={{ color: `hsl(${getHue(article.trust_score)}, 70%, 38%)` }}
+                            >
+                              신뢰도 {article.trust_score}점
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -911,11 +1018,11 @@ export default function MainPage() {
               </section>
             )}
 
-            <section className="space-y-5">
-              <h2 className="text-[16px] font-bold text-gray-700 tracking-tight border-b border-gray-200 pb-3 flex items-center gap-2">
+            <section className="space-y-5" ref={articleListRef}>
+              <h2 className="text-[14px] font-semibold text-gray-500 tracking-tight border-b border-gray-200 pb-3 flex items-center gap-2">
                 {submittedQuery ? `"${submittedQuery}" 검색 결과` : selectedCategory !== '전체' ? `${selectedCategory} 관련 기사` : '최신 기사'}
                 {isRefreshing && !isLoading && (
-                  <span className="text-[12px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">업데이트 중</span>
+                  <span className="text-[12px] font-semibold text-navy-600 bg-navy-50 px-2 py-0.5 rounded-full">업데이트 중</span>
                 )}
                 {(isSearchMode || selectedCategory !== '전체') && (
                   <span className="text-[13px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full ml-1">{totalCountForDisplay}건</span>
@@ -925,12 +1032,12 @@ export default function MainPage() {
               {isLoading ? (
                 <ArticleListSkeleton />
               ) : hasPrimaryError ? (
-                <div className="bg-white rounded-2xl border border-red-100 p-10 text-center">
+                <div className="bg-white rounded-xl border border-red-100 p-10 text-center">
                   <p className="text-gray-900 font-bold tracking-tight mb-2">기사를 불러오지 못했습니다.</p>
                   <p className="text-gray-500 text-[14px] font-medium mb-5">네트워크나 서버 상태를 확인한 뒤 다시 시도해주세요.</p>
                   <button
                     onClick={() => window.location.reload()}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-semibold text-[14px] transition-all shadow-sm"
+                    className="bg-navy-600 hover:bg-navy-700 text-white px-5 py-2 rounded-full font-semibold text-[14px] transition-colors"
                   >
                     다시 시도
                   </button>
@@ -940,7 +1047,7 @@ export default function MainPage() {
                   {articlesToRender.map((article) => (
                     <div
                       key={article.article_id}
-                      className="h-full transition-transform duration-300 ease-out hover:-translate-y-1"
+                      className="h-full"
                       onClickCapture={() => trackEvent('click_article', article.article_id, { source: 'main_list' })}
                     >
                       <ArticleCard article={article} />
@@ -948,7 +1055,7 @@ export default function MainPage() {
                   ))}
                 </div>
               ) : (
-                <div className="bg-white/80 rounded-2xl border border-dashed border-gray-200 p-10 text-center">
+                <div className="bg-white/80 rounded-xl border border-dashed border-gray-200 p-10 text-center">
                   <p className="text-gray-900 font-bold tracking-tight mb-2">
                     {isSearchMode ? '검색 결과가 없습니다.' : '아직 표시할 기사가 없습니다.'}
                   </p>
@@ -957,7 +1064,7 @@ export default function MainPage() {
                   </p>
                   <button
                     onClick={() => isSearchMode || selectedCategory !== '전체' ? handleCategoryClick('전체') : navigate('/admin')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-semibold text-[14px] transition-all shadow-sm"
+                    className="bg-navy-600 hover:bg-navy-700 text-white px-5 py-2 rounded-full font-semibold text-[14px] transition-colors"
                   >
                     {isSearchMode || selectedCategory !== '전체' ? '필터 초기화' : '관리자 화면으로 이동'}
                   </button>
@@ -966,9 +1073,9 @@ export default function MainPage() {
 
               {(!isSearchMode || (searchResults?.length ?? 0) > 0) && (
                 <div className="flex justify-center gap-3 pt-6 border-t border-gray-200">
-                  <button onClick={() => updatePage(Math.max(1, page - 1))} disabled={page === 1} className="text-[14px] font-semibold px-5 py-2 border border-gray-200 rounded-xl disabled:opacity-40 disabled:pointer-events-none bg-white hover:bg-gray-50 text-gray-700 active:bg-gray-900 active:text-white active:scale-95 transition-all duration-200 shadow-sm">이전</button>
+                  <button onClick={() => updatePage(Math.max(1, page - 1))} disabled={page === 1} className="text-[14px] font-semibold px-5 py-2 border border-gray-200 rounded-full disabled:opacity-40 disabled:pointer-events-none bg-white hover:bg-gray-50 text-gray-700 active:scale-95 transition-all duration-200">이전</button>
                   <span className="text-[14px] text-gray-500 flex items-center px-3 font-semibold">{page} 페이지</span>
-                  <button onClick={() => updatePage(page + 1)} disabled={!hasNextPage} className="text-[14px] font-semibold px-5 py-2 border border-gray-200 rounded-xl disabled:opacity-40 disabled:pointer-events-none bg-white hover:bg-gray-50 text-gray-700 active:bg-gray-900 active:text-white active:scale-95 transition-all duration-200 shadow-sm">다음</button>
+                  <button onClick={() => updatePage(page + 1)} disabled={!hasNextPage} className="text-[14px] font-semibold px-5 py-2 border border-gray-200 rounded-full disabled:opacity-40 disabled:pointer-events-none bg-white hover:bg-gray-50 text-gray-700 active:scale-95 transition-all duration-200">다음</button>
                 </div>
               )}
             </section>

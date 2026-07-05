@@ -324,16 +324,23 @@ def search_bm25(query: str, limit: int = 10) -> pd.DataFrame:
         return pd.DataFrame()
 
     corpus = [_tokenize(f"{row['title']} {row['full_text']}") for _, row in df_all.iterrows()]
+    query_tokens = _tokenize(query)
+    query_token_set = set(query_tokens)
     bm25 = BM25Okapi(corpus)
-    scores = bm25.get_scores(_tokenize(query))
+    scores = bm25.get_scores(query_tokens)
 
     df_all["bm25_score"] = scores
-    max_score = df_all["bm25_score"].max()
+    # 질의를 이루는 단어가 문서에 전부 등장한 경우만 후보로 남김.
+    # (예: "최저 임금"에서 "최저"만 우연히 포함된 무관한 기사가 걸리는 것을 방지)
+    df_all["_matched_terms"] = [len(query_token_set & set(tokens)) for tokens in corpus]
+    df_all = df_all[df_all["_matched_terms"] >= len(query_token_set)]
+
+    max_score = df_all["bm25_score"].max() if not df_all.empty else 0
     if max_score > 0:
         df_all["bm25_score"] = df_all["bm25_score"] / max_score
 
     df_result = (
-        df_all[df_all["bm25_score"] >= 0.7]
+        df_all[df_all["bm25_score"] >= 0.3]
         .sort_values("bm25_score", ascending=False)
         .head(limit)
         .reset_index(drop=True)

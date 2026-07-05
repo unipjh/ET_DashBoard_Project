@@ -6,6 +6,13 @@ import ArticleCard from '../components/ArticleCard'
 import { trackEvent } from '../api/logger'
 
 
+function trimToSentences(text: string, maxSentences: number): string {
+  if (!text) return text
+  const sentences = text.match(/[^.!?]+[.!?]+(\s+|$)/g)
+  if (!sentences || sentences.length <= maxSentences) return text.trim()
+  return sentences.slice(0, maxSentences).join('').trim()
+}
+
 function splitSentences(fullText: string): string[] {
   const result: string[] = []
   const lines = fullText.split('\n')
@@ -28,8 +35,11 @@ function splitSentences(fullText: string): string[] {
   return result
 }
 
+const SHORT_ARTICLE_THRESHOLD = 300
+
 function buildHighlightNodes(fullText: string, summaryText: string): React.ReactNode {
   if (!summaryText || !fullText) return <>{fullText}</>
+  if (fullText.length < SHORT_ARTICLE_THRESHOLD) return <>{fullText}</>
 
   const stopWords = new Set([
     '이', '가', '을', '를', '은', '는', '의', '에', '에서', '로', '으로',
@@ -61,19 +71,20 @@ function buildHighlightNodes(fullText: string, summaryText: string): React.React
     return { idx, score: matches, density }
   })
 
-  // 2단계: 점수 기준 상위 최대 2문장 선택 (score >= 2 이상인 것만)
-  const topTwo = new Set(
+  // 2단계: 기사 길이에 비례해 하이라이트 문장 개수 산정 (최소 1개, 최대 6개로 상한)
+  const maxHighlights = Math.min(6, Math.max(1, Math.ceil(fullText.length / 600)))
+  const topSentences = new Set(
     scored
       .filter(s => s.score >= 2)
       .sort((a, b) => b.score - a.score || b.density - a.density)
-      .slice(0, 2)
+      .slice(0, maxHighlights)
       .map(s => s.idx)
   )
 
   return (
     <>
       {segments.map((seg, idx) =>
-        topTwo.has(idx) ? (
+        topSentences.has(idx) ? (
           <mark key={idx} className="bg-yellow-200 text-gray-900 font-medium rounded-sm px-0.5">
             {seg}
           </mark>
@@ -265,11 +276,11 @@ export default function DetailPage() {
 
   if (!isValidId) return <div className="p-8 text-amber-600 font-medium">잘못된 접근입니다 (기사 ID 누락). URL을 확인해주세요.</div>
   if (isLoading) return (
-    <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
+    <div className="min-h-screen bg-paper flex items-center justify-center">
       <div className="flex gap-2">
-        <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }} />
-        <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '-0.15s' }} />
-        <div className="w-3 h-3 bg-blue-600 rounded-full animate-bounce" />
+        <div className="w-3 h-3 bg-navy-400 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }} />
+        <div className="w-3 h-3 bg-navy-500 rounded-full animate-bounce" style={{ animationDelay: '-0.15s' }} />
+        <div className="w-3 h-3 bg-navy-600 rounded-full animate-bounce" />
       </div>
     </div>
   )
@@ -277,7 +288,7 @@ export default function DetailPage() {
     return (
       <div className="p-10 text-center space-y-3 mt-10">
         <div className="text-red-500 font-bold text-xl">기사를 찾을 수 없습니다.</div>
-        <p className="text-slate-600">요청한 기사 ID: <span className="font-mono text-blue-500">{id}</span></p>
+        <p className="text-slate-600">요청한 기사 ID: <span className="font-mono text-navy-500">{id}</span></p>
         <p className="text-sm text-slate-400">백엔드 서버 API 주소가 정확한지, 백엔드가 켜져 있는지 확인해주세요.</p>
       </div>
     )
@@ -327,21 +338,21 @@ export default function DetailPage() {
   const displayKeywords = contentLen < 500 ? keywordList.slice(0, 3) : keywordList.slice(0, 5)
 
   return (
-    <div className="min-h-screen bg-neutral-50 font-sans antialiased text-gray-900">
-      <header className="w-full px-6 py-4 flex items-center justify-start bg-neutral-50/90 backdrop-blur-md sticky top-0 z-10">
+    <div className="min-h-screen bg-paper font-sans antialiased text-gray-900">
+      <header className="w-full px-6 py-4 flex items-center justify-start bg-paper/90 backdrop-blur-md sticky top-0 z-10">
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center justify-center w-12 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105"
+          className="flex items-center justify-center w-11 h-11 bg-white hover:bg-gray-50 rounded-full transition-colors border border-gray-200 hover:border-navy-300"
           title="뒤로가기"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2563eb" className="w-7 h-7">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2C4460" className="w-7 h-7">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
           </svg>
         </button>
 
         {/* 주가 지수 */}
         {stocks && (
-          <div className="ml-auto flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-2 shadow-sm">
+          <div className="ml-auto flex items-center gap-3 bg-white border border-gray-200 rounded-full px-4 py-2">
             {(['KOSPI', 'KOSDAQ', 'DOW'] as const).map((name, i) => {
               const item = stocks[name]
               if (!item || item.price === null) return null
@@ -365,11 +376,11 @@ export default function DetailPage() {
                     rel="noreferrer"
                     className="flex flex-col items-end leading-tight cursor-pointer hover:opacity-70 transition-opacity"
                   >
-                    <span className="text-[11px] font-bold text-blue-400 tracking-wider">{name}</span>
+                    <span className="text-[11px] font-bold text-navy-400 tracking-wider">{name}</span>
                     <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">{priceStr}</span>
                     <span className={`text-[11px] font-bold ${color}`}>{arrow} {Math.abs(pct).toFixed(2)}%</span>
                   </a>
-                  {i < 2 && <div className="w-px h-8 bg-blue-200" />}
+                  {i < 2 && <div className="w-px h-8 bg-navy-200" />}
                 </div>
               )
             })}
@@ -383,14 +394,14 @@ export default function DetailPage() {
           {/* 좌측 패널: 핵심 키워드 → 신뢰도 점수 */}
           <div className="order-2 lg:order-1 lg:col-span-3 space-y-4 lg:sticky lg:top-24">
             {keywordList.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm flex flex-col text-center">
+              <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col text-center">
                 <h2 className="text-[17px] font-extrabold text-gray-900 tracking-tight mb-5">핵심 키워드</h2>
                 <div className="flex flex-wrap items-center justify-center gap-2.5">
                   {displayKeywords.map((kw: string, idx: number) => (
                     <span
                       key={idx}
                       onClick={() => navigate(`/?q=${encodeURIComponent(kw)}`)}
-                      className="text-[14px] font-medium text-blue-600 bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-md transition-all hover:scale-105 hover:bg-blue-100 hover:border-blue-300 cursor-pointer"
+                      className="text-[14px] font-medium text-navy-600 bg-navy-50 border border-navy-100 px-3 py-1.5 rounded-md transition-all hover:bg-navy-100 hover:border-navy-300 cursor-pointer"
                     >
                       #{kw}
                     </span>
@@ -399,7 +410,7 @@ export default function DetailPage() {
               </div>
             )}
 
-            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm flex flex-col items-center text-center">
+            <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col items-center text-center">
               <h2 className="text-[17px] font-extrabold text-gray-900 tracking-tight mb-5">신뢰도 점수</h2>
 
               {article.trust_score > 0 ? (
@@ -445,7 +456,7 @@ export default function DetailPage() {
                       trackEvent('open_trust_modal', id)
                       setIsTrustModalOpen(true)
                     }}
-                    className="mt-5 text-[14px] text-blue-600 font-bold hover:text-blue-700 hover:underline tracking-tight transition-colors"
+                    className="mt-5 text-[14px] text-navy-600 font-bold hover:text-navy-700 hover:underline tracking-tight transition-colors"
                   >
                     상세 항목 보기
                   </button>
@@ -457,18 +468,18 @@ export default function DetailPage() {
           </div>
 
           {/* 중앙 패널: AI 요약 + 원문 */}
-          <div className="order-1 lg:order-2 lg:col-span-6 bg-white rounded-xl border border-gray-200 p-6 sm:p-10 shadow-sm">
+          <div className="order-1 lg:order-2 lg:col-span-6 bg-white rounded-lg border border-gray-200 p-6 sm:p-10">
             <div className="mb-8 border-b border-gray-100 pb-8">
               <h1 className="text-3xl sm:text-[32px] font-extrabold text-gray-900 tracking-tighter leading-[1.3] mb-5 break-keep">
                 {article.title}
               </h1>
               <div className="flex flex-wrap items-center justify-between gap-4 text-[14px] font-bold text-gray-500 tracking-tight">
                 <div className="flex items-center gap-2.5">
-                  <span className="text-blue-600">{article.source}</span>
-                  <span>·</span>
+                  <span className="text-navy-600">{article.source}</span>
+                  <span className="text-gray-300">|</span>
                   <span>{article.published_at}</span>
-                  <span>·</span>
-                  <a href={article.url} target="_blank" rel="noreferrer" className="text-gray-400 hover:text-blue-600 hover:underline transition-colors">
+                  <span className="text-gray-300">|</span>
+                  <a href={article.url} target="_blank" rel="noreferrer" className="text-gray-400 hover:text-navy-600 hover:underline transition-colors">
                     원문 보기
                   </a>
                 </div>
@@ -505,9 +516,9 @@ export default function DetailPage() {
             </div>
 
             {article.summary_text && (
-              <div className="bg-[#f4f7fb] rounded-2xl p-7 mb-10 border border-blue-100/50 shadow-sm">
-                <h3 className="text-blue-900 text-[17px] font-extrabold mb-4 flex items-center gap-2 tracking-tight">
-                  <span>✨</span> AI 요약
+              <div className="bg-[#f4f7fb] rounded-lg p-7 mb-10 border border-navy-100/50">
+                <h3 className="text-navy-900 text-[17px] font-extrabold mb-4 flex items-center gap-2 tracking-tight">
+                  AI 요약
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(window.location.href)
@@ -516,9 +527,9 @@ export default function DetailPage() {
                       setTimeout(() => { setIsToastVisible(false); setTimeout(() => setToastMessage(null), 500) }, 3000)
                     }}
                     title="링크 복사"
-                    className="flex items-center justify-center w-7 h-7 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-all duration-200 hover:scale-105 ml-1"
+                    className="flex items-center justify-center w-7 h-7 bg-navy-50 hover:bg-navy-100 border border-navy-200 rounded-md transition-all duration-200 ml-1"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#2563eb">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#2C4460">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                     </svg>
                   </button>
@@ -616,7 +627,7 @@ export default function DetailPage() {
                         {CRITERIA_LABELS[key]}
                       </text>
                       <text x={labelP.x} y={labelP.y + dy + 16} textAnchor={anchor} dominantBaseline="middle">
-                        <tspan className="text-sm font-semibold fill-blue-600">{score}점</tspan>
+                        <tspan className="text-sm font-semibold fill-navy-600">{score}점</tspan>
                       </text>
                     </g>
                   )
@@ -631,14 +642,14 @@ export default function DetailPage() {
                 const itemScore = item.score || 0
                 const isClickbait = key === 'clickbait_risk'
                 return (
-                  <div key={key} className="bg-slate-50/80 rounded-xl p-4 border border-blue-100/50 hover:border-blue-200 transition-colors shadow-sm">
+                  <div key={key} className="bg-slate-50/80 rounded-lg p-4 border border-gray-200 hover:border-navy-300 transition-colors">
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-extrabold text-gray-800 text-[15px] tracking-tight flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-navy-500"></span>
                         {label}
 
                         <div className="relative flex items-center group cursor-help ml-0.5">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 hover:text-navy-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-gray-800 text-white text-[12.5px] font-medium rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 break-keep leading-relaxed text-left pointer-events-none">
@@ -650,10 +661,15 @@ export default function DetailPage() {
                       </span>
                       <div className="flex items-center gap-2">
                         {isClickbait && <span className="text-[11px] text-gray-500 font-bold bg-gray-200/70 px-2 py-0.5 rounded tracking-tight">낮을수록 좋음</span>}
-                        <span className="font-extrabold text-blue-700 bg-blue-50 border border-blue-100 px-2.5 py-0.5 rounded-md text-[13px]">{itemScore} / 10</span>
+                        <span
+                          className="font-extrabold text-[13px]"
+                          style={{ color: `hsl(${getHue((isClickbait ? 10 - itemScore : itemScore) * 10)}, 70%, 38%)` }}
+                        >
+                          {itemScore} / 10
+                        </span>
                       </div>
                     </div>
-                    <p className="text-[14px] text-gray-700 leading-relaxed font-medium break-keep">{(item.reason || '').replace(/\//g, '')}</p>
+                    <p className="text-[14px] text-gray-700 leading-relaxed font-medium break-keep">{trimToSentences((item.reason || '').replace(/\//g, ''), 2)}</p>
                   </div>
                 )
               })}

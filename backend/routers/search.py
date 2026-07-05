@@ -37,12 +37,14 @@ def search_articles(req: SearchRequest):
         query=req.query,
         query_vector=vec,
         limit=req.limit,
-        min_semantic_score=0.6,  # 0.5 → 0.6 상향
+        min_semantic_score=0.5,
     )
     # 정규화된 RRF score만으로는 부족 — 시맨틱 또는 BM25 절대값 기준도 함께 검증
+    # (다중 단어 질의는 BM25 최고점을 독점하는 기사 하나 때문에 상대 점수가
+    #  낮게 나오는 경우가 많아 기준을 다소 완화함)
     df = df[
-        (df["score"] >= 0.8) &
-        ((df["semantic_score"] >= 0.65) | (df["bm25_score"] >= 0.7))
+        (df["score"] >= 0.6) &
+        ((df["semantic_score"] >= 0.55) | (df["bm25_score"] >= 0.5))
     ]
     if df.empty:
         return []

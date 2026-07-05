@@ -178,14 +178,14 @@ export default function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-neutral-50 font-sans antialiased text-gray-900">
-        <header className="w-full px-6 py-4 flex items-center justify-start bg-neutral-50/90 backdrop-blur-md sticky top-0 z-10">
+      <div className="min-h-screen bg-paper font-sans antialiased text-gray-900">
+        <header className="w-full px-6 py-4 flex items-center justify-start bg-paper/90 backdrop-blur-md sticky top-0 z-10">
           <button
-            onClick={() => navigate('/')}
-            className="flex items-center justify-center w-12 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105"
-            title="메인으로 돌아가기"
+            onClick={() => navigate(-1)}
+            className="flex items-center justify-center w-11 h-11 bg-white hover:bg-gray-50 rounded-full transition-colors border border-gray-200 hover:border-navy-300"
+            title="뒤로가기"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2563eb" className="w-7 h-7">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2C4460" className="w-6 h-6">
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
           </button>
@@ -204,7 +204,7 @@ export default function AdminPage() {
                 onChange={e => setLoginPassword(e.target.value)}
                 placeholder="관리자 비밀번호"
                 autoComplete="current-password"
-                className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-[15px] font-medium text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-[15px] font-medium text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:border-navy-400 focus:ring-2 focus:ring-navy-100 transition-all"
               />
               {authError && (
                 <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] font-semibold text-red-600">
@@ -214,7 +214,7 @@ export default function AdminPage() {
               <button
                 type="submit"
                 disabled={authMutation.isPending}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold text-[15px] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all shadow-sm"
+                className="w-full bg-navy-600 hover:bg-navy-700 text-white px-5 py-3 rounded-xl font-semibold text-[15px] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all shadow-sm"
               >
                 {authMutation.isPending ? '확인 중...' : '관리자 화면 열기'}
               </button>
@@ -226,14 +226,14 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 font-sans antialiased text-gray-900">
-      <header className="w-full px-6 py-4 flex items-center justify-start bg-neutral-50/90 backdrop-blur-md sticky top-0 z-10">
+    <div className="min-h-screen bg-paper font-sans antialiased text-gray-900">
+      <header className="w-full px-6 py-4 flex items-center justify-start bg-paper/90 backdrop-blur-md sticky top-0 z-10">
         <button
-          onClick={() => navigate('/')}
-          className="flex items-center justify-center w-12 h-12 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all shadow-sm border border-blue-200 hover:border-blue-300 hover:scale-105"
-          title="메인으로 돌아가기"
+          onClick={() => navigate(-1)}
+          className="flex items-center justify-center w-11 h-11 bg-white hover:bg-gray-50 rounded-full transition-colors border border-gray-200 hover:border-navy-300"
+          title="뒤로가기"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2563eb" className="w-7 h-7">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#2C4460" className="w-6 h-6">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
           </svg>
         </button>
@@ -274,11 +274,11 @@ export default function AdminPage() {
               <div className="flex-grow flex flex-col justify-center space-y-3">
                 <div className="flex justify-between items-center">
                   <p className="text-sm font-medium text-gray-500">Gemini API 할당량</p>
-                  <p className="text-lg font-bold text-blue-600">{stats.api_usage.quota_percent}%</p>
+                  <p className="text-lg font-bold text-navy-600">{stats.api_usage.quota_percent}%</p>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                    className="bg-navy-600 h-2 rounded-full transition-all duration-500"
                     style={{ width: `${stats.api_usage.quota_percent}%` }}
                   ></div>
                 </div>
@@ -300,7 +300,7 @@ export default function AdminPage() {
                   <tr className="border-b border-gray-100">
                     <th scope="col" className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50/80">카테고리</th>
                     <th scope="col" className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50/80">총 기사</th>
-                    <th scope="col" className="px-4 py-3 text-xs font-bold text-blue-600 uppercase tracking-wider bg-gray-50/80">오늘의 기사</th>
+                    <th scope="col" className="px-4 py-3 text-xs font-bold text-navy-600 uppercase tracking-wider bg-gray-50/80">오늘의 기사</th>
                     <th scope="col" className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50/80">분석률</th>
                   </tr>
                 </thead>
@@ -311,7 +311,7 @@ export default function AdminPage() {
                       <tr key={cat.category} className="border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50 transition-colors">
                         <th scope="row" className="px-4 py-3.5 font-bold text-gray-900 whitespace-nowrap text-[13px]">{cat.category}</th>
                         <td className="px-4 py-3.5 text-gray-500 text-[13px]">{cat.total}</td>
-                        <td className="px-4 py-3.5 font-bold text-blue-600 text-[13px]">{cat.today_articles || 0}</td>
+                        <td className="px-4 py-3.5 font-bold text-navy-600 text-[13px]">{cat.today_articles || 0}</td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2">
                             <div className="w-full bg-gray-200 rounded-full h-1.5">
@@ -345,14 +345,14 @@ export default function AdminPage() {
                     placeholder="0"
                     min="1"
                     max="100"
-                    className="w-16 border border-gray-300 rounded-lg text-center font-bold text-base focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-all py-1 bg-white"
+                    className="w-16 border border-gray-300 rounded-lg text-center font-bold text-base focus:outline-none focus:border-navy-400 focus:ring-1 focus:ring-navy-200 transition-all py-1 bg-white"
                   />
                   개 수집
                 </label>
                 <button
                   onClick={() => crawlMutation.mutate({ max: crawlMax, categories: ALL_CATEGORIES })}
                   disabled={crawlMax <= 0 || crawlState.status === 'crawling' || crawlMutation.isPending || isLoadingStats}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-semibold text-[14px] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all shadow-sm"
+                  className="bg-navy-600 hover:bg-navy-700 text-white px-5 py-2 rounded-lg font-semibold text-[14px] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all shadow-sm"
                 >
                   {crawlState.status === 'crawling' || crawlMutation.isPending ? '처리 중...' : '크롤링 시작'}
                 </button>
@@ -365,11 +365,11 @@ export default function AdminPage() {
                 <div className="flex flex-col w-full h-full p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="flex gap-1.5">
-                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }}></div>
-                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '-0.15s' }}></div>
-                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce"></div>
+                      <div className="w-2.5 h-2.5 bg-navy-500 rounded-full animate-bounce" style={{ animationDelay: '-0.3s' }}></div>
+                      <div className="w-2.5 h-2.5 bg-navy-500 rounded-full animate-bounce" style={{ animationDelay: '-0.15s' }}></div>
+                      <div className="w-2.5 h-2.5 bg-navy-500 rounded-full animate-bounce"></div>
                     </div>
-                    <p className="text-[14px] font-bold text-blue-700">
+                    <p className="text-[14px] font-bold text-navy-700">
                       {processStatus?.current_step && processStatus.current_step !== '대기 중'
                         ? `${processStatus.current_step} 진행 중...`
                         : '크롤링 작업 준비 중...'}
@@ -394,7 +394,7 @@ export default function AdminPage() {
                 <div className="flex flex-col w-full h-full p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-xl">{crawlState.newCount === 0 ? '✨' : '🎉'}</span>
-                    <p className={`text-[14px] font-bold ${crawlState.newCount === 0 ? 'text-blue-600' : 'text-green-600'}`}>
+                    <p className={`text-[14px] font-bold ${crawlState.newCount === 0 ? 'text-navy-600' : 'text-green-600'}`}>
                       {typeof crawlState.newCount === 'number'
                         ? crawlState.newCount === 0
                           ? '추가된 새로운 기사가 없습니다 (모두 기존 DB와 중복됨)'

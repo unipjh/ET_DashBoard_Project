@@ -40,22 +40,11 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-neutral-50 gap-5 transition-opacity duration-500 ease-out ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-paper transition-opacity duration-500 ease-out ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
     >
-      <span className="splash-logo text-[42px] font-black text-blue-600 tracking-tight select-none">
+      <span className="splash-logo logo-oval text-[42px] font-extrabold text-navy-600 tracking-tight select-none">
         ET DashBoard
       </span>
-
-      {/* 마스코트 캐릭터 이미지 */}
-      <div className="mascot-sway select-none">
-        <img
-          src="/mascot.png"
-          alt="ET DashBoard 마스코트"
-          className="mascot-img"
-          style={{ width: 160, height: 'auto' }}
-          draggable={false}
-        />
-      </div>
     </div>
   )
 }
