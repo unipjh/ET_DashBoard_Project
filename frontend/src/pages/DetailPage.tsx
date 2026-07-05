@@ -419,8 +419,8 @@ export default function DetailPage() {
                     <svg className="w-56 h-56 transform -rotate-90 drop-shadow-lg">
                       <defs>
                         <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor={`hsl(${getHue(score)}, 95%, 65%)`} />
-                          <stop offset="100%" stopColor={`hsl(${getHue(score)}, 100%, 45%)`} />
+                          <stop offset="0%" stopColor={`hsl(${getHue(score)}, 70%, 38%)`} />
+                          <stop offset="100%" stopColor={`hsl(${getHue(score)}, 70%, 38%)`} />
                         </linearGradient>
                       </defs>
                       <circle cx="112" cy="112" r={radius} stroke="currentColor" strokeWidth="36" fill="transparent" className="text-slate-200" />
@@ -438,7 +438,7 @@ export default function DetailPage() {
                     <div className="absolute inset-0 flex flex-col items-center justify-center drop-shadow-sm">
                       <span
                         className="text-[60px] font-extrabold tracking-tighter transition-colors duration-75"
-                        style={{ color: `hsl(${getHue(currentScore)}, 90%, 40%)` }}
+                        style={{ color: `hsl(${getHue(currentScore)}, 70%, 38%)` }}
                       >
                         {currentScore}
                       </span>
