@@ -1,0 +1,106 @@
+{
+  "base": {
+    "n": 30,
+    "extreme_n": 20,
+    "spearman_rho": 0.3914081907262832,
+    "extreme_auc": 0.775
+  },
+  "grounded_only": {
+    "n": 30,
+    "extreme_n": 20,
+    "spearman_rho": 0.3838570754805128,
+    "extreme_auc": 0.73
+  },
+  "blends": {
+    "alpha_0.0": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.3914081907262832,
+      "extreme_auc": 0.775
+    },
+    "alpha_0.1": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.4871494402234585,
+      "extreme_auc": 0.83
+    },
+    "alpha_0.2": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.552088566795546,
+      "extreme_auc": 0.86
+    },
+    "alpha_0.3": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.5690483571812051,
+      "extreme_auc": 0.86
+    },
+    "alpha_0.4": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.5299931648395975,
+      "extreme_auc": 0.84
+    },
+    "alpha_0.5": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.5131297459583376,
+      "extreme_auc": 0.835
+    },
+    "alpha_0.6": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.4730314159289571,
+      "extreme_auc": 0.8
+    },
+    "alpha_0.7": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.4759084124057286,
+      "extreme_auc": 0.81
+    },
+    "alpha_0.8": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.4571477839579645,
+      "extreme_auc": 0.795
+    },
+    "alpha_0.9": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.4272737614392237,
+      "extreme_auc": 0.78
+    },
+    "alpha_1.0": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.3838570754805128,
+      "extreme_auc": 0.73
+    }
+  },
+  "five_fold_selection": {
+    "folds": 5,
+    "selected_alphas": [
+      0.30000000000000004,
+      0.1,
+      0.30000000000000004,
+      0.30000000000000004,
+      0.4
+    ],
+    "mean_alpha": 0.27999999999999997,
+    "out_of_fold": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.46210430957101584,
+      "extreme_auc": 0.8
+    },
+    "base_same_samples": {
+      "n": 30,
+      "extreme_n": 20,
+      "spearman_rho": 0.3914081907262832,
+      "extreme_auc": 0.775
+    }
+  },
+  "note": "전체 blends는 동일 데이터 진단값이다. five_fold_selection의 out_of_fold를 채택 판단에 사용한다."
+}

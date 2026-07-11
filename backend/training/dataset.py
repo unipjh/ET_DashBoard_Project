@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import random
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -9,15 +7,14 @@ import torch
 from torch.utils.data import Dataset
 
 from backend.services import repo
-
-
-POSITIVE_EVENT_TYPES = {
-    "view_article_detail",
-    "view_detail",
-    "click_article",
-    "click_related",
-    "click_feedback",
-}
+from backend.training.samples import (  # noqa: F401 — 하위 호환 재노출
+    POSITIVE_EVENT_TYPES,
+    InteractionSample,
+    build_samples_from_rows,
+    extract_impression_article_ids,
+    load_samples_from_db,
+    parse_event_data,
+)
 
 
 @dataclass(frozen=True)
@@ -26,39 +23,6 @@ class ArticleFeatures:
     title_embedding: list[float]
     summary_embedding: list[float]
     category: str
-
-
-@dataclass(frozen=True)
-class InteractionSample:
-    subject_id: str
-    history_article_ids: list[str]
-    positive_article_id: str
-    negative_article_ids: list[str]
-
-
-def parse_event_data(raw_value) -> dict:
-    if isinstance(raw_value, dict):
-        return raw_value
-    if not raw_value:
-        return {}
-    try:
-        return json.loads(str(raw_value))
-    except Exception:
-        return {}
-
-
-def extract_impression_article_ids(raw_event_data) -> list[str]:
-    event_data = parse_event_data(raw_event_data)
-    articles = event_data.get("articles") or []
-    if not articles and event_data.get("article_ids"):
-        articles = event_data.get("article_ids") or []
-
-    article_ids: list[str] = []
-    for item in articles:
-        article_id = item.get("article_id") if isinstance(item, dict) else item
-        if article_id:
-            article_ids.append(str(article_id))
-    return article_ids
 
 
 def make_category_vocab(categories: Iterable[str]) -> dict[str, int]:
@@ -72,75 +36,6 @@ def category_onehot(category: str, vocab: dict[str, int]) -> torch.Tensor:
     vector = torch.zeros(len(vocab), dtype=torch.float32)
     vector[vocab.get(str(category or "unknown"), vocab["unknown"])] = 1.0
     return vector
-
-
-def build_samples_from_rows(
-    event_rows: list[dict],
-    feedback_rows: list[dict],
-    all_article_ids: list[str],
-    history_size: int = 20,
-    negative_count: int = 4,
-) -> list[InteractionSample]:
-    positives_by_subject: dict[str, list[tuple[str, str]]] = {}
-    impressions_by_subject: dict[str, list[str]] = {}
-    clicked_by_subject: dict[str, set[str]] = {}
-
-    for row in event_rows:
-        subject_id = str(row.get("user_id") or row.get("session_id") or "guest")
-        event_type = row.get("event_type")
-        article_id = row.get("article_id")
-        created_at = str(row.get("created_at") or "")
-        if event_type == "impression":
-            impressions_by_subject.setdefault(subject_id, []).extend(
-                extract_impression_article_ids(row.get("event_data"))
-            )
-        elif event_type in POSITIVE_EVENT_TYPES and article_id:
-            positives_by_subject.setdefault(subject_id, []).append((created_at, str(article_id)))
-            clicked_by_subject.setdefault(subject_id, set()).add(str(article_id))
-
-    for row in feedback_rows:
-        if row.get("feedback_type") != "like":
-            continue
-        subject_id = str(row.get("user_id") or "guest")
-        article_id = row.get("article_id")
-        created_at = str(row.get("created_at") or "")
-        if article_id:
-            positives_by_subject.setdefault(subject_id, []).append((created_at, str(article_id)))
-            clicked_by_subject.setdefault(subject_id, set()).add(str(article_id))
-
-    samples: list[InteractionSample] = []
-    article_pool = [str(article_id) for article_id in all_article_ids]
-    for subject_id, positives in positives_by_subject.items():
-        positives = sorted(positives, key=lambda item: item[0])
-        history: list[str] = []
-        clicked = clicked_by_subject.get(subject_id, set())
-        impression_negatives = [
-            article_id
-            for article_id in impressions_by_subject.get(subject_id, [])
-            if article_id not in clicked
-        ]
-
-        for _, positive_article_id in positives:
-            if history:
-                negatives = list(dict.fromkeys(impression_negatives))
-                if len(negatives) < negative_count:
-                    fallback = [
-                        article_id
-                        for article_id in article_pool
-                        if article_id != positive_article_id and article_id not in history
-                    ]
-                    random.shuffle(fallback)
-                    negatives.extend(fallback[: negative_count - len(negatives)])
-                samples.append(
-                    InteractionSample(
-                        subject_id=subject_id,
-                        history_article_ids=history[-history_size:],
-                        positive_article_id=positive_article_id,
-                        negative_article_ids=negatives[:negative_count],
-                    )
-                )
-            history.append(positive_article_id)
-    return samples
 
 
 class RecommendationDataset(Dataset):
@@ -264,56 +159,3 @@ def load_article_features_from_db() -> tuple[dict[str, ArticleFeatures], dict[st
         )
         categories.append(str(category or "unknown"))
     return features, make_category_vocab(categories)
-
-
-def load_samples_from_db(history_size: int = 20, negative_count: int = 4) -> list[InteractionSample]:
-    con = repo._get_con()
-    cur = con.cursor()
-    try:
-        cur.execute("SELECT article_id FROM articles")
-        all_article_ids = [row[0] for row in cur.fetchall()]
-        cur.execute(
-            """
-            SELECT session_id, user_id, event_type, article_id, event_data, created_at
-            FROM event_logs
-            ORDER BY created_at ASC
-            """
-        )
-        event_rows = [
-            {
-                "session_id": row[0],
-                "user_id": row[1],
-                "event_type": row[2],
-                "article_id": row[3],
-                "event_data": row[4],
-                "created_at": row[5],
-            }
-            for row in cur.fetchall()
-        ]
-        cur.execute(
-            """
-            SELECT user_id, article_id, feedback_type, created_at
-            FROM feedback_logs
-            ORDER BY created_at ASC
-            """
-        )
-        feedback_rows = [
-            {
-                "user_id": row[0],
-                "article_id": row[1],
-                "feedback_type": row[2],
-                "created_at": row[3],
-            }
-            for row in cur.fetchall()
-        ]
-    finally:
-        cur.close()
-        con.close()
-
-    return build_samples_from_rows(
-        event_rows=event_rows,
-        feedback_rows=feedback_rows,
-        all_article_ids=all_article_ids,
-        history_size=history_size,
-        negative_count=negative_count,
-    )

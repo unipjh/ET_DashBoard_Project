@@ -1,0 +1,5 @@
+﻿test,actual,expected,pass
+profile_dimension_768,768,768,True
+recent_item_has_more_weight,True,True,True
+category_share_at_most_60pct,0.6,<=0.6,True
+low_trust_demoted,low,low,True

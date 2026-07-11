@@ -6,7 +6,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from backend.main import app
-from backend.services import repo
+from backend.services import recommend, repo
 
 
 class ImpressionLoggingTests(unittest.TestCase):
@@ -91,6 +91,7 @@ class RecommendationFallbackTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body[0]["article_id"], "a1")
         self.assertIn("url", body[0])
+        self.assertEqual(body[0]["rec_source"], "profile")
 
     @patch("backend.services.recommend.encoder_inference.is_model_ready", return_value=False)
     @patch("backend.services.recommend.repo.get_latest_articles")
@@ -131,6 +132,104 @@ class RecommendationFallbackTests(unittest.TestCase):
             exclude_article_ids=["h1"],
         )
         latest.assert_not_called()
+
+
+class RecommendationRankingLogicTests(unittest.TestCase):
+    def test_profile_vector_weights_recent_article_higher(self):
+        old = [0.0] * 768
+        old[0] = 1.0
+        recent = [0.0] * 768
+        recent[1] = 1.0
+        # 시간순(과거→최근) 입력이므로 마지막 기사(recent)의 차원이 더 커야 한다
+        profile = recommend.build_profile_vector([
+            {"embed_summary": old},
+            {"embed_summary": recent},
+        ])
+        self.assertGreater(profile[1], profile[0])
+
+    def test_profile_vector_stays_in_raw_embedding_space(self):
+        raw = [0.0] * 768
+        raw[0] = 1.0
+        learned = [0.0] * 768
+        learned[1] = 1.0
+
+        profile = recommend.build_profile_vector([{
+            "embed_summary": raw,
+            "learned_embedding": learned,
+        }])
+
+        self.assertEqual(profile[0], 1.0)
+        self.assertEqual(profile[1], 0.0)
+
+    def test_blend_vectors_prefers_short_term(self):
+        short = [1.0, 0.0]
+        long = [0.0, 1.0]
+        blended = recommend._blend_vectors(short, long, 0.65)
+        self.assertAlmostEqual(blended[0], 0.65)
+        self.assertAlmostEqual(blended[1], 0.35)
+
+    def test_blend_vectors_falls_back_when_one_side_empty(self):
+        short = [1.0, 0.0]
+        empty = [0.0, 0.0]
+        self.assertEqual(recommend._blend_vectors(short, empty, 0.65), short)
+        self.assertEqual(recommend._blend_vectors(empty, short, 0.65), short)
+
+    def test_trust_guardrail_demotes_low_trust_articles(self):
+        records = [
+            {"article_id": "low", "trust_score": 20},
+            {"article_id": "high", "trust_score": 85},
+            {"article_id": "unanalyzed", "trust_score": 0},
+        ]
+        ordered = recommend._apply_trust_guardrail(records)
+        self.assertEqual([r["article_id"] for r in ordered], ["high", "unanalyzed", "low"])
+
+    def test_profile_reranker_combines_semantic_and_history_category(self):
+        records = [
+            {
+                "article_id": "semantic_only",
+                "score": 0.90,
+                "category": "IT/과학",
+                "trust_score": 80,
+                "published_at": "2026-07-01",
+            },
+            {
+                "article_id": "history_match",
+                "score": 0.40,
+                "category": "경제",
+                "trust_score": 80,
+                "published_at": "2026-07-01",
+            },
+        ]
+        history = [{"article_id": "h1", "category": "경제"}]
+
+        ordered = recommend._rerank_profile_candidates(records, history)
+
+        self.assertEqual(ordered[0]["article_id"], "history_match")
+        self.assertGreater(ordered[0]["_rank_score"], ordered[1]["_rank_score"])
+
+    def test_diversify_caps_single_category_share(self):
+        records = [
+            {"article_id": f"it{i}", "category": "IT/과학"} for i in range(5)
+        ] + [{"article_id": "eco1", "category": "경제"}]
+        ordered = recommend._diversify_by_category(records, limit=5)
+        top5_categories = [r["category"] for r in ordered[:5]]
+        self.assertIn("경제", top5_categories)
+
+    @patch("backend.services.recommend.repo.get_latest_articles")
+    def test_explore_slot_replaces_last_item_with_new_category(self, latest):
+        latest.return_value = [
+            {"article_id": "seen_cat", "category": "IT/과학"},
+            {"article_id": "fresh", "category": "세계"},
+        ]
+        records = [
+            {"article_id": f"r{i}", "category": "IT/과학", "rec_source": "profile"}
+            for i in range(5)
+        ]
+        history = [{"article_id": "h1", "category": "IT/과학"}]
+        result = recommend._add_explore_slot(records, history, limit=5)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[-1]["article_id"], "fresh")
+        self.assertEqual(result[-1]["rec_source"], "explore")
 
 
 @unittest.skipIf(importlib.util.find_spec("torch") is None, "torch is not installed")

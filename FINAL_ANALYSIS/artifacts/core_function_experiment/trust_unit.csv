@@ -1,0 +1,10 @@
+﻿test,actual,expected,pass
+maximum_without_clickbait,100,100,True
+verdict_true_boundary,likely_true,likely_true,True
+verdict_uncertain_boundary,uncertain,uncertain,True
+verdict_false_boundary,likely_false,likely_false,True
+known_source_rule,10,10,True
+unknown_source_neutral,5,5,True
+all_yes_predicate,10,10,True
+all_uncertain_predicate,3,3,True
+cross_penalty_and_evidence_cap,0,0,True

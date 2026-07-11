@@ -268,6 +268,25 @@ export default function MainPage() {
 
   const queryClient = useQueryClient()
 
+  // 추천 섹션 노출 로깅 — rec_source별 CTR 계산의 분모가 된다
+  const personalizedSignature = personalizedArticles
+    .slice(0, 5)
+    .map((article, index) => `${index}:${article.article_id}`)
+    .join('|')
+  useEffect(() => {
+    if (isLoadingPersonalized || personalizedArticles.length === 0) return
+    const shown = personalizedArticles.slice(0, 5)
+    trackImpressions(
+      shown.map((article, index) => ({ article_id: article.article_id, position: index })),
+      {
+        source: 'personalized_recommendation',
+        context_key: `personalized_recommendation|${sessionId}`,
+        rec_sources: shown.map((article) => article.rec_source || 'unknown'),
+      },
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoadingPersonalized, personalizedSignature])
+
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [isSignupOpen, setIsSignupOpen] = useState(false)
   const [loginEmail, setLoginEmail] = useState('')
@@ -980,7 +999,11 @@ export default function MainPage() {
                           key={article.article_id}
                           type="button"
                           onClick={() => {
-                            trackEvent('click_article', article.article_id, { source: isRefreshFeedActive ? 'latest_feed' : 'personalized_recommendation', rank: index + 1 })
+                            trackEvent('click_article', article.article_id, {
+                              source: isRefreshFeedActive ? 'latest_feed' : 'personalized_recommendation',
+                              rank: index + 1,
+                              rec_source: isRefreshFeedActive ? 'latest' : article.rec_source || 'unknown',
+                            })
                             navigate(`/article/${article.article_id}`)
                           }}
                           className="group w-full text-left flex-1 flex gap-3 items-center ring-1 ring-transparent hover:ring-navy-300 hover:bg-gray-50 rounded-lg transition-colors duration-150 px-1"
@@ -993,6 +1016,9 @@ export default function MainPage() {
                               {article.title}
                             </span>
                             <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-gray-400">
+                              {article.rec_source === 'explore' && (
+                                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-bold text-emerald-600 border border-emerald-200">새로운 발견</span>
+                              )}
                               <span>{article.source}</span>
                               <span className="text-gray-300">|</span>
                               <span>{article.published_at?.substring(0, 10)}</span>

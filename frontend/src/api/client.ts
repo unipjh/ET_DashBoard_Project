@@ -23,6 +23,8 @@ export interface Article {
   trust_score: number
   trust_verdict: string
   category: string
+  rec_source?: string | null
+  rec_score?: number | null
 }
 
 export interface PaginatedArticlesResponse {

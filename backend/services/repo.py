@@ -270,8 +270,8 @@ def search_similar_chunks(
     con = _get_con()
     cur = con.cursor()
     cur.execute("""
-        SELECT c.article_id, c.chunk_text, a.title, a.source, a.published_at,
-               a.summary_text, a.keywords, a.trust_score, a.trust_verdict,
+        SELECT c.article_id, c.chunk_text, a.title, a.source, a.url, a.category,
+               a.published_at, a.summary_text, a.keywords, a.trust_score, a.trust_verdict,
                1 - (c.embedding <=> %s::vector) AS score
         FROM article_chunks c
         JOIN articles a ON c.article_id = a.article_id
@@ -421,8 +421,8 @@ def search_similar_chunks_excluding(
     con = _get_con()
     cur = con.cursor()
     cur.execute("""
-        SELECT c.article_id, c.chunk_text, a.title, a.source, a.published_at,
-               a.summary_text, a.keywords, a.trust_score, a.trust_verdict,
+        SELECT c.article_id, c.chunk_text, a.title, a.source, a.url, a.category,
+               a.published_at, a.summary_text, a.keywords, a.trust_score, a.trust_verdict,
                1 - (c.embedding <=> %s::vector) AS score
         FROM article_chunks c
         JOIN articles a ON c.article_id = a.article_id
@@ -958,6 +958,68 @@ def find_impression_negatives(user_id: str | None = None, session_id: str | None
     except Exception as e:
         print(f"[DB ERROR] find_impression_negatives: {type(e).__name__}: {e}")
         return []
+    finally:
+        cur.close()
+        con.close()
+
+
+def get_recommendation_funnel(days: int = 14) -> dict:
+    """추천 섹션의 노출/클릭을 rec_source별로 집계해 CTR을 계산한다.
+
+    노출: event_type='impression' AND event_data.source='personalized_recommendation'
+    클릭: event_type='click_article' AND event_data.source='personalized_recommendation'
+    """
+    con = _get_con()
+    cur = con.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT count(*) AS impression_events,
+                   COALESCE(SUM(jsonb_array_length(COALESCE((event_data::jsonb)->'articles', '[]'::jsonb))), 0)
+                       AS impression_items
+            FROM event_logs
+            WHERE event_type = 'impression'
+              AND (event_data::jsonb)->>'source' = 'personalized_recommendation'
+              AND substring(created_at, 1, 10) >= to_char(now() - (%s || ' days')::interval, 'YYYY-MM-DD')
+            """,
+            [days],
+        )
+        impression_events, impression_items = cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT COALESCE((event_data::jsonb)->>'rec_source', 'unknown') AS rec_source,
+                   count(*) AS clicks
+            FROM event_logs
+            WHERE event_type = 'click_article'
+              AND (event_data::jsonb)->>'source' = 'personalized_recommendation'
+              AND substring(created_at, 1, 10) >= to_char(now() - (%s || ' days')::interval, 'YYYY-MM-DD')
+            GROUP BY 1
+            ORDER BY 2 DESC
+            """,
+            [days],
+        )
+        clicks_by_source = {row[0]: int(row[1]) for row in cur.fetchall()}
+        total_clicks = sum(clicks_by_source.values())
+        impression_items = int(impression_items or 0)
+        return {
+            "days": days,
+            "impression_events": int(impression_events or 0),
+            "impression_items": impression_items,
+            "clicks": total_clicks,
+            "clicks_by_rec_source": clicks_by_source,
+            "ctr": round(total_clicks / impression_items, 4) if impression_items else None,
+        }
+    except Exception as e:
+        print(f"[DB ERROR] get_recommendation_funnel: {type(e).__name__}: {e}")
+        return {
+            "days": days,
+            "impression_events": 0,
+            "impression_items": 0,
+            "clicks": 0,
+            "clicks_by_rec_source": {},
+            "ctr": None,
+        }
     finally:
         cur.close()
         con.close()

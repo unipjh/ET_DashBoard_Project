@@ -26,6 +26,8 @@ class ArticleOut(BaseModel):
     trust_score: Optional[int] = 0
     trust_verdict: Optional[str] = ""
     category: Optional[str] = ""
+    rec_source: Optional[str] = None  # 추천 응답 전용: encoder|profile|category|latest|explore
+    rec_score: Optional[float] = None  # 추천 유사도 점수 (해당 시)
 
 
 class PaginatedArticlesResponse(BaseModel):

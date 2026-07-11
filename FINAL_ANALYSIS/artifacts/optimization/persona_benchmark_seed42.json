@@ -1,0 +1,182 @@
+{
+  "seed": 42,
+  "catalog_size": 33,
+  "sample_count": 1760,
+  "train_count": 1232,
+  "validation_count": 528,
+  "feature_order": [
+    "semantic",
+    "category",
+    "trust",
+    "freshness"
+  ],
+  "selected_weights": [
+    0.0,
+    0.5,
+    0.1,
+    0.4
+  ],
+  "train_metrics": {
+    "n": 1232,
+    "hit_rate_at_3": 0.825487012987013,
+    "mrr": 0.6332115800865843,
+    "ndcg_at_3": 0.6522924328762799,
+    "macro_persona_ndcg": 0.6522924328762819,
+    "worst_persona_ndcg": 0.46861060454545983,
+    "low_trust_topk_rate": 0.010281385281385282
+  },
+  "validation_metrics": {
+    "n": 528,
+    "hit_rate_at_3": 0.7878787878787878,
+    "mrr": 0.6091856060606051,
+    "ndcg_at_3": 0.6180729170116415,
+    "macro_persona_ndcg": 0.618072917011641,
+    "worst_persona_ndcg": 0.4787102432900503,
+    "low_trust_topk_rate": 0.010101010101010102
+  },
+  "baselines": {
+    "semantic_only": {
+      "n": 528,
+      "hit_rate_at_3": 0.6742424242424242,
+      "mrr": 0.5417929292929285,
+      "ndcg_at_3": 0.5209860618844753,
+      "macro_persona_ndcg": 0.5209860618844764,
+      "worst_persona_ndcg": 0.4256799402597473,
+      "low_trust_topk_rate": 0.017676767676767676
+    },
+    "category_only": {
+      "n": 528,
+      "hit_rate_at_3": 0.7727272727272727,
+      "mrr": 0.6061868686868673,
+      "ndcg_at_3": 0.6094154226122901,
+      "macro_persona_ndcg": 0.6094154226122896,
+      "worst_persona_ndcg": 0.36074693235931177,
+      "low_trust_topk_rate": 0.017045454545454544
+    },
+    "deployment_candidate": {
+      "n": 528,
+      "hit_rate_at_3": 0.7878787878787878,
+      "mrr": 0.608585858585857,
+      "ndcg_at_3": 0.6169462578125063,
+      "macro_persona_ndcg": 0.6169462578125058,
+      "worst_persona_ndcg": 0.42730434540043866,
+      "low_trust_topk_rate": 0.010732323232323232
+    },
+    "selected_hybrid": {
+      "n": 528,
+      "hit_rate_at_3": 0.7878787878787878,
+      "mrr": 0.6091856060606051,
+      "ndcg_at_3": 0.6180729170116415,
+      "macro_persona_ndcg": 0.618072917011641,
+      "worst_persona_ndcg": 0.4787102432900503,
+      "low_trust_topk_rate": 0.010101010101010102
+    }
+  },
+  "personas": [
+    {
+      "name": "IT전문독자",
+      "category_preferences": {
+        "IT/과학": 1.0,
+        "경제": 0.35,
+        "세계": 0.2
+      },
+      "category_weight": 0.45,
+      "semantic_weight": 0.35,
+      "trust_weight": 0.1,
+      "freshness_weight": 0.1,
+      "novelty_weight": 0.0,
+      "rationale": "전문 분야의 연속성을 가장 중시하고 관련 산업 기사도 읽는다."
+    },
+    {
+      "name": "경제실용독자",
+      "category_preferences": {
+        "경제": 1.0,
+        "정치": 0.35,
+        "IT/과학": 0.3
+      },
+      "category_weight": 0.4,
+      "semantic_weight": 0.3,
+      "trust_weight": 0.2,
+      "freshness_weight": 0.1,
+      "novelty_weight": 0.0,
+      "rationale": "경제 주제와 기존 관심의 연속성을 선호하되 근거가 약한 기사는 피한다."
+    },
+    {
+      "name": "시민정책독자",
+      "category_preferences": {
+        "정치": 1.0,
+        "사회": 0.7,
+        "세계": 0.25
+      },
+      "category_weight": 0.35,
+      "semantic_weight": 0.2,
+      "trust_weight": 0.35,
+      "freshness_weight": 0.1,
+      "novelty_weight": 0.0,
+      "rationale": "정책·사회 이슈를 보지만 출처와 근거 신뢰도를 강하게 고려한다."
+    },
+    {
+      "name": "국제정세독자",
+      "category_preferences": {
+        "세계": 1.0,
+        "정치": 0.5,
+        "경제": 0.45
+      },
+      "category_weight": 0.4,
+      "semantic_weight": 0.25,
+      "trust_weight": 0.2,
+      "freshness_weight": 0.15,
+      "novelty_weight": 0.0,
+      "rationale": "국제 이슈의 맥락과 최신성을 함께 본다."
+    },
+    {
+      "name": "생활정보독자",
+      "category_preferences": {
+        "생활/문화": 1.0,
+        "사회": 0.35,
+        "IT/과학": 0.2
+      },
+      "category_weight": 0.4,
+      "semantic_weight": 0.2,
+      "trust_weight": 0.1,
+      "freshness_weight": 0.15,
+      "novelty_weight": 0.15,
+      "rationale": "생활 주제를 중심으로 읽지만 가끔 새로운 실용 주제를 탐색한다."
+    },
+    {
+      "name": "호기심탐색독자",
+      "category_preferences": {},
+      "category_weight": 0.15,
+      "semantic_weight": 0.15,
+      "trust_weight": 0.15,
+      "freshness_weight": 0.2,
+      "novelty_weight": 0.35,
+      "rationale": "최근에 읽지 않은 분야와 새로운 기사를 의도적으로 탐색한다."
+    },
+    {
+      "name": "신뢰우선독자",
+      "category_preferences": {},
+      "category_weight": 0.15,
+      "semantic_weight": 0.15,
+      "trust_weight": 0.55,
+      "freshness_weight": 0.1,
+      "novelty_weight": 0.05,
+      "rationale": "분야보다 신뢰도와 근거 품질을 최우선으로 본다."
+    },
+    {
+      "name": "속보스캐너",
+      "category_preferences": {
+        "정치": 0.35,
+        "경제": 0.35,
+        "세계": 0.35,
+        "사회": 0.35
+      },
+      "category_weight": 0.2,
+      "semantic_weight": 0.1,
+      "trust_weight": 0.15,
+      "freshness_weight": 0.5,
+      "novelty_weight": 0.05,
+      "rationale": "여러 분야를 빠르게 훑으며 최신 기사를 우선한다."
+    }
+  ]
+}

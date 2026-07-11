@@ -1,0 +1,2 @@
+﻿seeds,validation_n_total,semantic_ndcg3,hybrid_ndcg3,ndcg_relative_gain,semantic_mrr,hybrid_mrr,mrr_relative_gain,low_trust_relative_change
+5,2640,0.5231056930993019,0.6310379573566083,0.206329744984858,0.5420075757575751,0.6193244949494936,0.14264914855452182,-0.35964912280701755

@@ -47,6 +47,12 @@ def validate_admin(_: None = Depends(verify_admin)):
     return {"status": "ok"}
 
 
+@router.get("/recommendation-metrics")
+def get_recommendation_metrics(days: int = 14, _: None = Depends(verify_admin)):
+    """추천 섹션 노출/클릭/CTR을 rec_source별로 집계 (온라인 추천 품질 지표)."""
+    return repo.get_recommendation_funnel(days=max(1, min(days, 90)))
+
+
 @router.get("/stats")
 def get_stats(_: None = Depends(verify_admin)):
     try:

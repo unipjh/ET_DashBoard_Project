@@ -104,6 +104,9 @@ def _apply_weights(per_criteria: dict, weights: dict) -> int:
     evidence   = per_criteria["evidence_support"]["score"]
     if neutrality < 4 and evidence < 4:
         score_100 -= 10.0
+
+    if evidence < 4:
+        score_100 = min(score_100, 69.0)
         
     return int(max(0, min(100, score_100)))
 
@@ -340,6 +343,12 @@ def main() -> None:
                         help="--from-raw 모드에서 사용할 가중치 조합 (W0~W3)")
     parser.add_argument("--pairs-ref", default=None,
                         help="--from-raw 모드에서 쌍 정의 파일 (기본: data/invariant_pairs.jsonl)")
+    parser.add_argument("--pair-id", default=None,
+                        help="특정 불변쌍 ID만 평가 (예: P5, API 호출 절약용)")
+    parser.add_argument("--overlay-raw", action="append", default=[],
+                        help="기준 캐시에 pair_id+side 단위로 덮어쓸 추가 캐시 (반복 지정 가능)")
+    parser.add_argument("--result-out", default=None,
+                        help="레이블 평가 결과 JSONL 저장 경로")
 
     args = parser.parse_args()
 
@@ -351,6 +360,12 @@ def main() -> None:
             sys.exit(1)
 
         cache_records = load_jsonl(str(cache_path))
+        if args.overlay_raw:
+            cache_index = {(row["pair_id"], row["side"]): row for row in cache_records}
+            for overlay_path in args.overlay_raw:
+                for row in load_jsonl(overlay_path):
+                    cache_index[(row["pair_id"], row["side"])] = row
+            cache_records = list(cache_index.values())
         print(f"[eval] 캐시 로드: {len(cache_records)}건 ({cache_path})")
 
         # 쌍 정의 파일
@@ -359,6 +374,8 @@ def main() -> None:
             print(f"[eval] 쌍 정의 파일 없음: {pairs_ref_path}", file=sys.stderr)
             sys.exit(1)
         pairs = load_jsonl(pairs_ref_path)
+        if args.pair_id:
+            pairs = [pair for pair in pairs if pair.get("pair_id") == args.pair_id]
 
         # 가중치 지정 없으면 전체 실험
         targets = [args.weights] if args.weights else list(WEIGHT_VARIANTS.keys())
@@ -373,6 +390,8 @@ def main() -> None:
         sys.exit(1)
 
     items = load_jsonl(str(data_path))
+    if args.pair_id:
+        items = [item for item in items if item.get("pair_id") == args.pair_id]
     print(f"[eval] 데이터 로드: {len(items)}건 ({data_path})")
 
     # type 필드 있으면 불변 조건 쌍 파일로 판단
@@ -393,6 +412,13 @@ def main() -> None:
         # 모드 1: 레이블 기반 평가
         results = run_label_eval(items)
         print_label_stats(results)
+        if args.result_out:
+            output_path = Path(args.result_out)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("w", encoding="utf-8") as output_file:
+                for result in results:
+                    output_file.write(json.dumps(result, ensure_ascii=False) + "\n")
+            print(f"[eval] 레이블 결과 저장: {output_path}")
 
 
 if __name__ == "__main__":

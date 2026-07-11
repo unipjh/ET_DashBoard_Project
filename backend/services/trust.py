@@ -25,11 +25,11 @@ TRUST_MODEL = "gemini-2.5-flash"
 MAX_RETRIES = 3
 
 WEIGHTS = {
-    "source_credibility":  0.20,  # W3: 패턴 경고 목적, style 강화 대비 소폭 하향
-    "evidence_support":    0.25,
-    "style_neutrality":    0.25,  # W3: 감정·선동 표현이 가장 명확한 패턴 신호
-    "logical_consistency": 0.20,
-    "clickbait_risk":     -0.10,
+    "source_credibility":  0.20,  # W2: SNU 팩트체크 30건에서 최상 상관
+    "evidence_support":    0.20,
+    "style_neutrality":    0.25,
+    "logical_consistency": 0.15,
+    "clickbait_risk":     -0.20,
 }
 
 # Phase 1-5: MAX_RAW 동적 계산 (양수 가중치만 합산하여 최대 가능 원점수 산출)
@@ -89,6 +89,8 @@ PREDICATES: dict[str, list[str]] = {
         "기사에 구체적인 수치나 통계가 포함되어 있는가?",
         "실명의 전문가 또는 공식 기관이 인용되어 있는가?",
         "인용된 자료의 출처(기관명, 보고서명 등)가 명시되어 있는가?",
+        "핵심 주장을 뒷받침하는 서로 독립적인 근거 출처가 2개 이상 제시되어 있는가? (한 기관의 발표를 다른 매체가 재인용한 것은 하나로 본다)",
+        "핵심 주장에 대한 1차 자료·연구·보고서 또는 검증 가능한 원문을 구체적인 이름으로 추적할 수 있는가?",
     ],
     "style_neutrality": [
         "기사 제목에 감정적이거나 자극적인 표현이 없는가?",
@@ -99,6 +101,7 @@ PREDICATES: dict[str, list[str]] = {
         "기사 앞부분의 주장과 뒷부분 결론이 서로 일치하는가? (앞에서 A라 했는데 결론에서 B라 하면 no로 답하라)",
         "기사 내에 서로 모순되는 문장이 없는가? (한 문단에서 긍정했다가 다른 문단에서 부정하면 no로 답하라)",
         "제목에서 제시한 주장이 본문 내용으로 실질적으로 뒷받침되는가?",
+        "기사 서술이 앞에서 문제가 해결·확정되었다고 단정한 뒤 뒤에서 해결되지 않았거나 불확실하다고 직접 부정하는 자기모순이 없는가? 서로 다른 인물의 상반된 견해 인용은 모순이 아니지만, 기사 자체의 단정이 뒤에서 뒤집히면 반드시 no로 답하라.",
     ],
     "clickbait_risk": [
         "제목이 본문 내용을 과장하거나 왜곡하고 있는가?",       # 역방향: Yes → 위험
@@ -117,6 +120,17 @@ _PREDICATE_QUESTIONS = "\n".join(
     f"\n{key}:\n" + "\n".join(f"  Q{i+1}: {q}" for i, q in enumerate(qs))
     for key, qs in PREDICATES.items()
 )
+
+_RESPONSE_EXAMPLE = {
+    key: [
+        {"reason": f"Q{index + 1} 판단 근거", "answer": "yes|no|uncertain"}
+        for index in range(len(questions))
+    ]
+    for key, questions in PREDICATES.items()
+}
+_RESPONSE_EXAMPLE["overall_reason"] = "신뢰도를 낮추는 핵심 요인 1~2개를 한국어 2문장으로 서술"
+# score_trust에서 최종 .format()을 사용하므로 JSON 중괄호를 이스케이프한다.
+_RESPONSE_EXAMPLE_TEXT = json.dumps(_RESPONSE_EXAMPLE, ensure_ascii=False, indent=2).replace("{", "{{").replace("}", "}}")
 
 _PROMPT_TEMPLATE = f"""\
 당신은 뉴스 신뢰도 분석 전문가입니다.
@@ -144,29 +158,7 @@ _PROMPT_TEMPLATE = f"""\
 {{text}}
 
 [반환 형식 — JSON만, 설명 텍스트 없이]
-{{{{
-  "evidence_support": [
-    {{{{"reason": "...", "answer": "yes"}}}},
-    {{{{"reason": "...", "answer": "no"}}}},
-    {{{{"reason": "...", "answer": "uncertain"}}}}
-  ],
-  "style_neutrality": [
-    {{{{"reason": "...", "answer": "yes"}}}},
-    {{{{"reason": "...", "answer": "no"}}}},
-    {{{{"reason": "...", "answer": "uncertain"}}}}
-  ],
-  "logical_consistency": [
-    {{{{"reason": "...", "answer": "yes"}}}},
-    {{{{"reason": "...", "answer": "no"}}}},
-    {{{{"reason": "...", "answer": "uncertain"}}}}
-  ],
-  "clickbait_risk": [
-    {{{{"reason": "...", "answer": "yes"}}}},
-    {{{{"reason": "...", "answer": "no"}}}},
-    {{{{"reason": "...", "answer": "uncertain"}}}}
-  ],
-  "overall_reason": "신뢰도를 낮추는 핵심 요인 1~2개를 한국어 2문장으로 서술"
-}}}}"""
+{_RESPONSE_EXAMPLE_TEXT}"""
 
 
 # ============================================================
@@ -280,6 +272,10 @@ def _weighted_sum_score(criteria: dict) -> int:
     if neutrality < 4 and evidence < 4:
         logger.debug("[trust] 교차 패널티 적용: neutrality=%d, evidence=%d", neutrality, evidence)
         score_100 -= 10.0
+
+    # 기사 내부 근거가 부족하면 매체·문체만으로 likely_true가 되지 않도록 제한한다.
+    if evidence < 4:
+        score_100 = min(score_100, 69.0)
 
     return int(max(0, min(100, score_100)))
 
