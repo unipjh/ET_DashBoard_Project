@@ -26,7 +26,7 @@
 | Database | Supabase (PostgreSQL + pgvector) |
 | AI | Google Gemini API (`google-genai` SDK — `gemini-embedding-001` 임베딩, Flash 요약·신뢰도) |
 | 추천 모델 | NRMS 기반 경량 Attention Encoder (PyTorch, 768d) |
-| 테스트 | pytest (백엔드), Playwright (프론트 E2E) |
+| 테스트 | unittest (백엔드), Playwright (프론트 E2E) |
 | Deployment | Vercel (프론트), Railway (백엔드) |
 
 ---
@@ -41,9 +41,10 @@
 - **관련 기사 추천** — 벡터 유사도 기반 관련 기사 5개 제공
 - **실시간 주가 지수** — 상세 페이지 코스피·코스닥·DOW 표시
 - **관리자 대시보드** — 크롤링·분석·중복제거 실행, 배경 작업 이력, 성능 지표 모니터링
-- **회원 시스템** — 회원가입·로그인, 피드백 페이지 로그인 필수
+- **회원 시스템** — 회원가입·로그인·회원탈퇴, 피드백 페이지 로그인 필수
 - **피드백** — 기사별 좋아요/싫어요 수집 (회원 전용)
 - **행동 로그** — impression·click·페이지뷰 이벤트 자동 수집 (추천 모델 학습 원천)
+- **통계 로그 페이지** — 방문·클릭 퍼널, 회원/비회원 비교, 성능 지표 대시보드 (`/log`)
 
 ---
 
@@ -136,8 +137,11 @@ npm run dev
 ### 테스트 / 프리플라이트
 
 ```bash
-# 백엔드 유닛 테스트
+# 백엔드 스모크 테스트
 python -m unittest backend.tests.test_smoke
+
+# 백엔드 개별 테스트 (예: 추천 모델)
+python -m unittest backend.tests.test_recommendation_attention
 
 # 프론트 E2E (Playwright)
 cd frontend && npm run test:e2e
@@ -157,22 +161,32 @@ python scripts/preflight.py
 | `GET` | `/api/articles` | 기사 목록 (`?page=1&size=10&category=경제`) |
 | `GET` | `/api/articles/{id}` | 기사 상세 |
 | `GET` | `/api/articles/{id}/related` | 관련 기사 |
+| `GET` | `/api/articles/{id}/thumbnail` | 기사 썸네일 |
+| `GET` | `/api/trust/{id}` | 신뢰도 상세 (근거·기준별 점수) |
 | `POST` | `/api/search` | 하이브리드 검색 |
 | `GET` | `/api/recommendations` | 개인화 추천 (`?session_id=xxx&limit=10`) |
 | `POST` | `/api/logs` | 이벤트 로그 수집 |
+| `POST` | `/api/feedback` | 기사 좋아요/싫어요 등록 |
+| `GET` | `/api/feedback` | 피드백 조회 |
 | `POST` | `/api/auth/signup` | 회원가입 |
 | `POST` | `/api/auth/login` | 로그인 |
+| `GET` | `/api/auth/me` | 내 정보 조회 |
+| `DELETE` | `/api/auth/me` | 회원 탈퇴 |
 | `GET` | `/api/stocks` | 주가 지수 (코스피·코스닥·DOW) |
 
 ### 관리자 전용 (`X-Admin-Password` 헤더 필요)
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
+| `POST` | `/api/admin/session` | 관리자 세션 인증 |
 | `GET` | `/api/admin/stats` | DB 현황 통계 |
+| `GET` | `/api/admin/dashboard-stats` | 로그 페이지용 통계 (방문·퍼널·성능 지표) |
+| `GET` | `/api/admin/recommendation-metrics` | 추천 모델 성능 지표 |
 | `POST` | `/api/admin/crawl` | 크롤링 시작 |
 | `POST` | `/api/admin/analyze` | 신뢰도 분석 (미분석 일괄) |
 | `POST` | `/api/admin/dedupe` | 중복 기사 제거 |
 | `POST` | `/api/admin/keywords` | 키워드 누락 기사 일괄 추출 |
+| `POST` | `/api/admin/delete-no-keywords` | 키워드 없는 기사 삭제 |
 | `GET` | `/api/admin/process-status` | 현재 작업 상태 |
 | `GET` | `/api/admin/jobs` | 배경 작업 이력 (최근 20건) |
 | `GET` | `/api/admin/performance-metrics` | 클라이언트 성능 지표 (`?hours=24`) |
@@ -182,9 +196,9 @@ python scripts/preflight.py
 ## 프로젝트 구조
 
 ```
-ET_by_claude/
+ET_DashBoard_Project/
 ├── backend/
-│   ├── main.py                  # FastAPI 진입점, CORS
+│   ├── main.py                  # FastAPI 진입점, CORS, 라우터 등록
 │   ├── schemas.py               # Pydantic 모델
 │   ├── requirements.txt
 │   ├── migrations/              # SQL 마이그레이션 파일
@@ -192,9 +206,11 @@ ET_by_claude/
 │   │   ├── articles.py          # /api/articles
 │   │   ├── search.py            # /api/search (하이브리드)
 │   │   ├── recommendations.py   # /api/recommendations (개인화 추천)
-│   │   ├── admin.py             # /api/admin/*
+│   │   ├── admin.py             # /api/admin/* (크롤링·분석·통계·작업이력)
+│   │   ├── trust.py             # /api/trust (신뢰도 상세)
+│   │   ├── feedback.py          # /api/feedback (좋아요/싫어요)
 │   │   ├── logs.py              # /api/logs (이벤트 로그)
-│   │   ├── auth.py              # /api/auth/*
+│   │   ├── auth.py              # /api/auth/* (회원가입·로그인·탈퇴)
 │   │   └── stocks.py            # /api/stocks
 │   ├── services/
 │   │   ├── repo.py              # DB CRUD
@@ -203,6 +219,7 @@ ET_by_claude/
 │   │   ├── admin_pipeline.py    # Gemini 오케스트레이션
 │   │   ├── crawl.py             # 네이버 뉴스 크롤러
 │   │   ├── trust.py             # TELLER 신뢰도 분석
+│   │   ├── eval_trust.py        # 신뢰도 평가/실험용 유틸
 │   │   ├── process_status.py    # 배경 작업 상태 (DB 연동)
 │   │   ├── config.py            # 환경변수 로드
 │   │   └── model_weights/       # 배포용 학습 가중치 (.pt)
@@ -210,26 +227,38 @@ ET_by_claude/
 │   │   ├── news_encoder.py      # NewsEncoder 모델
 │   │   ├── user_encoder.py      # UserEncoder 모델
 │   │   ├── dataset.py           # 학습 데이터 로딩
+│   │   ├── samples.py           # 학습 샘플 유틸
 │   │   ├── generate_synthetic_samples.py  # 페르소나 기반 합성 샘플
-│   │   ├── train_user_encoder.py          # 학습 실행
+│   │   ├── persona_benchmark.py           # 페르소나 벤치마크
+│   │   ├── train_news_encoder.py          # NewsEncoder 학습
+│   │   ├── train_user_encoder.py          # UserEncoder 학습
+│   │   ├── evaluate_offline.py            # 오프라인 성능 평가
+│   │   ├── evaluate_embedding_alignment.py # 임베딩 정합성 평가
+│   │   ├── evaluate_grounded_trust.py     # 신뢰도 근거 평가
 │   │   ├── export_weights.py              # 가중치 서빙 경로 복사
 │   │   └── backfill_learned_embeddings.py # 기존 기사 임베딩 채우기
-│   └── tests/
-│       └── test_smoke.py        # 백엔드 스모크 테스트
+│   └── tests/                   # unittest 스위트 (스모크·추천·신뢰도 등)
 ├── frontend/
+│   ├── e2e/                     # Playwright E2E 테스트
 │   └── src/
 │       ├── api/
 │       │   ├── client.ts        # axios 인스턴스, API 함수
 │       │   ├── logger.ts        # 이벤트 로그 자동 전송
 │       │   └── performance.ts   # 클라이언트 성능 지표 수집
+│       ├── components/
+│       │   ├── Logo.tsx         # 서비스 로고 (헤더·스플래시 공용)
+│       │   └── ArticleCard.tsx  # 기사 카드
 │       └── pages/
 │           ├── MainPage.tsx     # 메인 (개인화 추천 포함)
 │           ├── DetailPage.tsx   # 상세 (신뢰도·관련기사)
 │           ├── AdminPage.tsx    # 관리자 (작업 이력·성능 지표)
-│           └── FeedbackPage.tsx
-├── frontend/e2e/                # Playwright E2E 테스트
+│           ├── FeedbackPage.tsx # 피드백 (로그인 필수)
+│           └── LogPage.tsx      # 통계 로그 대시보드 (`/log`)
 ├── scripts/
 │   └── preflight.py             # 배포 전 전체 검증
+├── FINAL_ANALYSIS/              # 실험 리포트·벤치마크 아티팩트
+├── data/                        # 평가/학습용 샘플 데이터
+├── architecture/                # 아키텍처 문서
 └── docs/                        # 구현 문서
 ```
 
