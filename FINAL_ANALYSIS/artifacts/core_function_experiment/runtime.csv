@@ -1,0 +1,14 @@
+﻿check,value
+project_root,C:\Users\user\Desktop\ET_by_claude
+git_commit,1016f99d
+worktree_dirty,True
+changed_or_untracked_path_count,25
+evaluation_code_sha256,62c1937d95fa7c7ef47e5d4cd605931908c9bb9ce123539eaac30e6796a3ef5b
+python,3.11.9
+python_executable,C:\Users\user\Desktop\ET_by_claude\etvenv1\Scripts\python.exe
+running_in_etvenv1,True
+trust_cache_modified_utc,2026-07-11T01:44:04.224413+00:00
+attention_checkpoint_exists,True
+attention_checkpoint_mb,9.8
+attention_model_ready_here,True
+profile_embedding_dim,768

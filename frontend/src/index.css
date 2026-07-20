@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-50: #F1F4F8;
+  --color-navy-100: #E1E7F0;
+  --color-navy-200: #C3D0E0;
+  --color-navy-300: #97A9C4;
+  --color-navy-400: #6C82A3;
+  --color-navy-500: #47607F;
+  --color-navy-600: #2C4460;
+  --color-navy-700: #22344B;
+  --color-navy-800: #18253A;
+  --color-navy-900: #101A29;
+
+  --color-paper: #FAF9F6;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #FAF9F6;
+  color: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: rgba(44, 68, 96, 0.18);
+  color: #18253A;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #FAF9F6; }
+::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2C4460; }
+
+/* 스플래시 로고 등장 */
+@keyframes splash-in {
+  0%   { opacity: 0; transform: scale(0.75) translateY(8px); }
+  60%  { opacity: 1; transform: scale(1.04) translateY(0px); }
+  100% { opacity: 1; transform: scale(1) translateY(0px); }
+}
+.splash-logo {
+  animation: splash-in 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 로고 오벌 테두리 — 글자 색과 동일한 테두리(currentColor)로 텍스트를 감쌈 */
+.logo-oval {
+  display: inline-block;
+  font-style: italic;
+  border: 5px solid currentColor;
+  border-radius: 50%;
+  padding: 0.12em 0.85em;
+  line-height: 1.15;
+}

@@ -1,0 +1,2 @@
+﻿operation,runs,latency_p50_ms,latency_p95_ms,peak_python_memory_mb
+"build_profile_vector(history=20, dim=768)",100,11.911199995665811,16.492199996719137,0.1630868911743164

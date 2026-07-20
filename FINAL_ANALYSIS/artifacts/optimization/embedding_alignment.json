@@ -1,0 +1,31 @@
+{
+  "raw_articles": 33,
+  "learned_articles": 21,
+  "paired_articles": 21,
+  "paired_cosine_mean": 0.17285640892528353,
+  "paired_cosine_median": 0.16561247408390045,
+  "learned_to_chunks": {
+    "n": 21,
+    "top1": 0.23809523809523808,
+    "top5": 0.6190476190476191,
+    "mrr": 0.4303476946334089
+  },
+  "raw_to_chunks": {
+    "n": 21,
+    "top1": 1.0,
+    "top5": 1.0,
+    "mrr": 1.0
+  },
+  "legacy_mixed_profile_replay": {
+    "n": 118,
+    "hit_rate_at_3": 0.8389830508474576,
+    "mrr": 0.5529661016949153,
+    "ndcg_at_3": 0.5957369733353582
+  },
+  "raw_profile_replay": {
+    "n": 118,
+    "hit_rate_at_3": 0.8728813559322034,
+    "mrr": 0.6942090395480224,
+    "ndcg_at_3": 0.715997163710658
+  }
+}

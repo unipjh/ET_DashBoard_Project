@@ -1,0 +1,6 @@
+﻿weights,is_current,cases,passed,pass_rate,failed_cases,mean_pair_margin,min_pair_margin
+W2,True,9,9,1.0,-,30.5,5.0
+W0,False,9,9,1.0,-,29.0,6.0
+W1,False,9,9,1.0,-,29.75,5.0
+W3,False,9,9,1.0,-,28.875,6.0
+W4,False,9,9,1.0,-,29.5,3.0

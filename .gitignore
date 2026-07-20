@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# DuckDB
+*.duckdb
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Env
+.env
+venv/
+etvenv1/
+etvenv/
+
+# Ignored directories
+ET_DashBoard_Project/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Backend pycache
+backend/__pycache__/
+backend/**/__pycache__/
+
+export_*.csv
+export_*.npy
+
+# Large data files
+data/clickbait_*.csv
+
+# Vite cache (빌드 아티팩트)
+frontend/.vite/
+
+# Playwright 테스트 결과물
+frontend/test-results/
+frontend/playwright-report/
+
+# ML 학습 체크포인트 (학습 중간 산출물 — model_weights/ 는 커밋)
+backend/training/checkpoints/
+
+# Claude Code / MCP
+.mcp.json
+.claude/worktrees/
+.claude/settings.local.json

@@ -1,0 +1,2 @@
+﻿n,base_spearman,oof_spearman,base_extreme_auc,oof_extreme_auc,mean_selected_alpha,diagnostic_alpha_0.2_spearman,diagnostic_alpha_0.2_auc
+30,0.3914081907262832,0.46210430957101584,0.775,0.8,0.27999999999999997,0.552088566795546,0.86
